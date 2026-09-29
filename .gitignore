@@ -1,0 +1,36 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 环境变量与密钥
+.env
+.mcp.json
+
+# 数据与本地数据库
+data/chroma_db/
+data/app.db
+identifier.sqlite
+data/*.db-journal
+data/*.db-wal
+data/run/
+
+# MCP 桥接运行日志
+logs/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

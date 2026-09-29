@@ -1,0 +1,56 @@
+[project]
+name = "fitness-nutrition-agent"
+version = "0.1.0"
+description = "根据用户身体条件、训练目标和可用器械，生成每周健身计划与配套一日三餐示例的 Agent"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Agent 编排（豆包 ARK 接口兼容 OpenAI 协议）
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    # 后端
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    # 前端
+    "streamlit>=1.39.0",
+    # RAG / 向量库
+    "chromadb>=0.5.0",
+    # Chroma 的 OllamaEmbeddingFunction 依赖
+    "ollama>=0.4.0",
+    # MCP
+    "mcp>=1.0.0",
+    "httpx>=0.27.0",
+    # 配置与校验
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "jsonschema>=4.23.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["app", "ui", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["app"]
