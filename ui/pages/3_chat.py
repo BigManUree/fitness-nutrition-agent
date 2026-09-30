@@ -86,7 +86,7 @@ if prompt := st.chat_input("说说你想怎么调整，如：把卧推换成哑�
 
     from app.agent.chat_adjust import resolve_with_tools
     from app.agent.llm import get_llm
-    from app.agent.safety import check_medical_risk
+    from app.agent.safety import pre_check_message
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     history = st.session_state.chat_history
@@ -97,10 +97,10 @@ if prompt := st.chat_input("说说你想怎么调整，如：把卧推换成哑�
 
     with st.chat_message("assistant"):
         with st.spinner("思考中…"):
-            # 代码层安全守卫：命中需医学评估的症状时直接固定话术，不调用模型
-            medical_reply = check_medical_risk(prompt)
-            if medical_reply is not None:
-                answer, tool_results = medical_reply, []
+            # 代码层安全守卫：医疗症状/极端节食/编造动作命中即固定话术，不调模型
+            guard_reply = pre_check_message(prompt)
+            if guard_reply is not None:
+                answer, tool_results = guard_reply, []
             else:
                 try:
                     llm = get_llm(json_mode=False, temperature=0.4)
