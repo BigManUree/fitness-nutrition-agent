@@ -160,7 +160,9 @@ async def substitute_exercise(
         return result
 
     # 2) 同肌群 + 各可用器械反查（去重保序）
-    equipment_list = equipment_available or [None]
+    # 健身房全器械可用：不带 equipment 筛选一次拉全，避免按 "gym" 过滤查不到
+    full_gym = "gym" in equipment_available
+    equipment_list = [None] if full_gym or not equipment_available else equipment_available
     candidates = await _collect_alternatives(muscle_key, equipment_list)
 
     # 3) 排除原动作，打分排序
@@ -228,7 +230,9 @@ def _annotate_match(
 ) -> dict[str, Any]:
     """给候选附上可读的匹配理由（不改写动作数据本身）。"""
     reasons = ["同一目标肌群"]
-    if equipment_available and item["equipment"] in equipment_available:
+    if "gym" in equipment_available:
+        reasons.append("健身房器械齐全，不受器械限制")
+    elif equipment_available and item["equipment"] in equipment_available:
         reasons.append(f"使用你有的器械：{item['equipment']}")
     if item["difficulty"] == original["difficulty"]:
         reasons.append("难度相近")

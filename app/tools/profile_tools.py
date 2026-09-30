@@ -29,6 +29,16 @@ class ProfileToolError(Exception):
     """画像规整/校验失败。"""
 
 
+# 特殊器械值：健身房（全部器械可用）。它是"全能选项"，
+# 与其他器械同时出现时只保留自身。
+GYM_EQUIPMENT = "gym"
+
+
+def has_full_gym(equipment: Any) -> bool:
+    """器械列表是否包含"健身房（全部器械）"。"""
+    return isinstance(equipment, list) and GYM_EQUIPMENT in equipment
+
+
 def normalize_text_list(items: Any) -> list[str]:
     """规整字符串列表：逐项 strip、丢弃空串、保持顺序去重。
 
@@ -54,6 +64,8 @@ def normalize_equipment(items: Any) -> list[str]:
 
     器械名在 MCP 中是枚举式英文标识（dumbbell/barbell/bodyweight）。
     注意小写化必须在去重之前，否则 "Dumbbell" 和 "dumbbell" 都会保留。
+    含 "gym"（健身房）时折叠为 ["gym"]：健身房什么器械都有，
+    其余勾选是冗余的，折叠后下游只需识别这一个值。
 
     Raises:
         ProfileToolError: 入参不是 list 或包含非字符串元素。
@@ -69,6 +81,8 @@ def normalize_equipment(items: Any) -> list[str]:
         text = item.strip().lower()
         if text and text not in result:
             result.append(text)
+    if GYM_EQUIPMENT in result:
+        return [GYM_EQUIPMENT]
     return result
 
 

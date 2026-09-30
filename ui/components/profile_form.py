@@ -6,6 +6,7 @@ import streamlit as st
 
 # (内部值, 展示名)
 EQUIPMENT_OPTIONS = [
+    ("gym", "健身房（全部器械都有）"),
     ("barbell", "杠铃"),
     ("dumbbell", "哑铃"),
     ("kettlebell", "壶铃"),
@@ -61,6 +62,7 @@ def profile_form(initial: dict | None = None) -> dict | None:
             options=[v for v, _ in EQUIPMENT_OPTIONS],
             default=initial.get("equipment", ["barbell", "dumbbell"]),
             format_func=lambda x: dict(EQUIPMENT_OPTIONS)[x],
+            help="选择「健身房（全部器械都有）」后，其他器械无需再选，系统会自动按全器械处理。",
         )
 
         col3, col4 = st.columns(2)

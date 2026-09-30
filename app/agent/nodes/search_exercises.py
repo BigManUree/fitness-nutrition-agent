@@ -6,6 +6,7 @@ import asyncio
 
 from app.agent.state import AgentState
 from app.tools.exercise_tools import search_exercises
+from app.tools.profile_tools import GYM_EQUIPMENT
 
 # 一周分化需要覆盖的大肌群（使用 tools 层支持的别名）
 MUSCLE_GROUPS = [
@@ -25,7 +26,10 @@ MAX_CONCURRENCY = 3
 
 async def search_exercises_node(state: AgentState) -> AgentState:
     profile = state["profile"]
-    allowed_equipment = set(profile.get("equipment", [])) | {BODYWEIGHT}
+    profile_equipment = profile.get("equipment", [])
+    # 健身房：全部器械可用，跳过器械过滤
+    full_gym = GYM_EQUIPMENT in profile_equipment
+    allowed_equipment = set(profile_equipment) | {BODYWEIGHT}
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
     async def for_group(muscle: str) -> list[dict]:
@@ -45,7 +49,7 @@ async def search_exercises_node(state: AgentState) -> AgentState:
             if "__error__" in item:
                 errors.append(item["__error__"])
                 continue
-            if item.get("equipment") in allowed_equipment:
+            if full_gym or item.get("equipment") in allowed_equipment:
                 candidates[item["name"]] = item
 
     return AgentState(

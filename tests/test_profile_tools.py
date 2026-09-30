@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pytest
 from app.tools import (
+    GYM_EQUIPMENT,
     ProfileToolError,
     build_profile,
+    has_full_gym,
     missing_profile_fields,
     normalize_equipment,
     normalize_text_list,
@@ -77,3 +79,16 @@ def test_missing_profile_fields_lists_required():
 def test_empty_equipment_counts_as_missing():
     raw = dict(VALID_RAW, equipment=[])
     assert "equipment" in missing_profile_fields(raw)
+
+
+def test_gym_option_collapses_other_equipment():
+    # 勾选了健身房又勾了其他器械：只保留 gym（位置任意）
+    assert normalize_equipment(["dumbbell", " GYM ", "barbell"]) == [GYM_EQUIPMENT]
+    assert normalize_equipment(["Gym"]) == [GYM_EQUIPMENT]
+
+
+def test_build_profile_with_gym():
+    profile = build_profile(dict(VALID_RAW, equipment=["dumbbell", "gym"]))
+    assert profile.equipment == ["gym"]
+    assert has_full_gym(["gym"])
+    assert not has_full_gym(["dumbbell"])
