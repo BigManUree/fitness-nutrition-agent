@@ -30,7 +30,7 @@ echo    [1] 启动全部服务
 echo    [2] 停止全部服务
 echo    [3] 重启
 echo    [4] 查看运行状态
-echo    [0] 退出
+echo    [0] Exit
 echo.
 set /p choice=请输入选项后回车:
 if "%choice%"=="1" goto do_start
