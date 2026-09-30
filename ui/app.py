@@ -22,37 +22,71 @@ st.set_page_config(
 )
 
 
-def check_password() -> bool:
-    """密码校验：密码存于 st.secrets["APP_PASSWORD"]，不写入代码。
+# 切换账号时需要清空的会话键，避免上一个用户的数据残留
+_SESSION_DATA_KEYS = (
+    "profile",
+    "plan",
+    "validation",
+    "chat_history",
+    "db_loaded",
+    "user_id",
+    "pending_substitution",
+)
 
-    返回 True 表示已认证；未认证时渲染登录框并 st.stop() 中断页面。
+
+def account_gate() -> None:
+    """账号门禁：未登录时提供「登录 / 注册」；通过后以用户名作为 user_id。
+
+    账号与密码哈希存于本地 SQLite（app.db.users）；本函数不依赖 st.secrets。
+    未通过统一 st.stop()，阻断后续页面渲染。
     """
-    if st.session_state.get("authenticated"):
-        return True
+    if st.session_state.get("current_user"):
+        # 登录后以用户名作为全链路主键（画像/计划/向量/会话隔离）
+        st.session_state.user_id = st.session_state.current_user
+        return
 
-    # 未配置密码时 fail closed：拒绝放行并提示部署者补配置
-    expected_password = st.secrets.get("APP_PASSWORD") if hasattr(st, "secrets") else None
-    if not expected_password or expected_password == "your_password_here":
-        st.error("未配置访问密码（.streamlit/secrets.toml 中的 APP_PASSWORD），拒绝访问。")
-        st.stop()
+    from app.db.users import UserExistsError, create_user, verify_user
 
-    st.title("🔒 请输入访问密码")
+    st.title("🔐 健身营养 Agent")
 
-    with st.form("login_form"):
-        password = st.text_input("密码", type="password", placeholder="请输入密码")
-        submitted = st.form_submit_button("登录")
+    tab_login, tab_register = st.tabs(["登录", "注册新账号"])
 
-    if submitted:
-        if password == expected_password:
-            st.session_state.authenticated = True
-            st.rerun()
-        st.error("密码错误，请重试。")
+    with tab_login:
+        with st.form("login_form"):
+            username = st.text_input("用户名", placeholder="3-20 位字母/数字/下划线")
+            password = st.text_input("密码", type="password")
+            login_clicked = st.form_submit_button("登录")
+        if login_clicked:
+            if username and verify_user(username, password):
+                st.session_state.current_user = username
+                st.rerun()
+            st.error("用户名或密码错误。")
 
-    # 未认证：阻断后续页面渲染
+    with tab_register:
+        with st.form("register_form"):
+            new_username = st.text_input("用户名", key="reg_username")
+            new_password = st.text_input("密码", type="password", key="reg_password")
+            confirm = st.text_input("确认密码", type="password", key="reg_confirm")
+            register_clicked = st.form_submit_button("注册并登录")
+        if register_clicked:
+            if new_password != confirm:
+                st.error("两次输入的密码不一致。")
+            else:
+                try:
+                    create_user(new_username, new_password)
+                except UserExistsError as exc:
+                    st.error(str(exc))
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    st.session_state.current_user = new_username
+                    st.rerun()
+
+    st.caption("开放自助注册：新用户注册后即可使用，各账号数据相互隔离。")
     st.stop()
 
 
-check_password()
+account_gate()
 
 pages = [
     st.Page("pages/1_profile.py", title="用户画像", icon="📋"),
@@ -71,13 +105,16 @@ st.session_state.setdefault("plan", None)
 st.session_state.setdefault("validation", None)
 st.session_state.setdefault("chat_history", [])
 
+st.sidebar.success(f"当前用户：{st.session_state.current_user}")
 if st.session_state.get("profile"):
     st.sidebar.success("画像已保存 ✅")
 if st.session_state.get("plan"):
     st.sidebar.success("计划已生成 ✅")
 
 if st.sidebar.button("退出登录"):
-    st.session_state.authenticated = False
+    st.session_state.current_user = None
+    for key in _SESSION_DATA_KEYS:
+        st.session_state.pop(key, None)
     st.rerun()
 
 nav.run()

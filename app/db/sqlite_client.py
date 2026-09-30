@@ -22,6 +22,8 @@ from app.config import load_dotenv
 from app.db.models import (
     BAD_CASES_SCHEMA_SQL,
     PERFORMANCE_LOG_SCHEMA_SQL,
+    SESSIONS_SCHEMA_SQL,
+    USERS_SCHEMA_SQL,
     Profile,
 )
 
@@ -41,7 +43,7 @@ CREATE TABLE IF NOT EXISTS generated_plans (
     plan_json TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-""" + PERFORMANCE_LOG_SCHEMA_SQL + BAD_CASES_SCHEMA_SQL
+""" + USERS_SCHEMA_SQL + SESSIONS_SCHEMA_SQL + PERFORMANCE_LOG_SCHEMA_SQL + BAD_CASES_SCHEMA_SQL
 
 
 def get_db_path() -> Path:

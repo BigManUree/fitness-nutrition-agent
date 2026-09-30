@@ -28,6 +28,31 @@ class Profile(BaseModel):
 
 
 # ============================================================
+# 多账号：账号表 + 会话表（DDL 常量，由 sqlite_client 拼入 SCHEMA_SQL）
+# ============================================================
+
+# 账号：密码只存 pbkdf2 哈希与盐，不存明文
+USERS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 会话：登录 token -> 用户名；登出即删行（可吊销）
+SESSIONS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (username) REFERENCES users(username)
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
+"""
+
+# ============================================================
 # 观测与复盘表（DDL 常量，由 sqlite_client 拼入 SCHEMA_SQL）
 # ============================================================
 

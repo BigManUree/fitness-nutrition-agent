@@ -1,57 +1,79 @@
-"""FastAPI 后端：封装用户画像存取与 Agent 计划生成。
+"""FastAPI 后端：多账号认证 + 画像存取 + Agent 计划生成。
 
 启动：
     make api  （uv run uvicorn app.main:app --reload）
 
+鉴权：
+    注册/登录成功后返回会话 token；受保护接口需带
+        Authorization: Bearer <token>
+    服务端按 token 反查当前账号，所有画像/计划都以该账号为隔离边界。
+
 端点：
-    GET  /health                        健康检查
-    PUT  /api/profiles/{user_id}        保存/更新画像（写 SQLite）
-    GET  /api/profiles/{user_id}        读取画像
-    GET  /api/profiles                  读取最近一份画像
-    POST /api/plans/generate            运行 Agent 生成计划
+    GET  /health                健康检查（无需鉴权）
+    POST /api/auth/register     注册并返回 token
+    POST /api/auth/login        登录并返回 token
+    POST /api/auth/logout       登出（吊销 token）
+    GET  /api/me                当前账号
+    PUT  /api/profile           保存/更新当前账号画像
+    GET  /api/profile           读取当前账号画像
+    POST /api/plans/generate    运行 Agent 生成计划
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.config import get_settings
 from app.db.models import Profile
-from app.db.sqlite_client import load_latest_profile, load_profile, save_plan, save_profile
+from app.db.sqlite_client import load_profile, save_plan, save_profile
+from app.db.users import (
+    UserExistsError,
+    create_session,
+    create_user,
+    get_session_user,
+    revoke_session,
+    verify_user,
+)
 
 app = FastAPI(
     title="健身营养 Agent API",
-    version="0.1.0",
-    description="根据身体条件、目标与器械生成一周训练计划与一日三餐。",
+    version="0.2.0",
+    description="多账号：注册登录后，按账号生成一周训练计划与一日三餐。",
 )
 
-settings = get_settings()
+
+# ============================================================
+# 鉴权依赖
+# ============================================================
+
+def current_user(authorization: str | None = Header(default=None)) -> str:
+    """从 Authorization: Bearer <token> 解析当前账号；无效则 401。"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="缺失或格式错误的 Bearer token")
+    token = authorization[len("Bearer ") :].strip()
+    username = get_session_user(token)
+    if username is None:
+        raise HTTPException(status_code=401, detail="token 无效或已过期，请重新登录")
+    return username
 
 
-@app.middleware("http")
-async def verify_api_key(request: Request, call_next):
-    """内部调用鉴权：除 /health 外，请求头 X-API-Key 必须与 .env 中 API_KEY 一致。
+# ============================================================
+# 请求模型
+# ============================================================
 
-    未配置 API_KEY（或仍为占位符）时不启用校验，便于本地开发与测试。
-    """
-    if request.url.path == "/health" or not settings.api_auth_enabled:
-        return await call_next(request)
-    if request.headers.get("X-API-Key") != settings.api_key:
-        return JSONResponse(status_code=401, content={"detail": "无效或缺失的 X-API-Key"})
-    return await call_next(request)
+class AuthRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=20)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class PlanGenerateRequest(BaseModel):
     """生成计划请求。
 
-    profile 可省略：此时按 user_id 从 SQLite 读取已存画像。
+    profile 可省略：此时从数据库读取当前账号已存画像。
     """
 
-    user_id: str = Field(min_length=1)
     profile: Profile | None = None
     persist: bool = Field(
         default=True, description="生成成功后是否把计划追加存入 generated_plans"
@@ -64,59 +86,103 @@ async def run_agent(user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
 
     return await agent_graph.ainvoke(
         {"user_id": user_id, "profile": profile},
-        # Checkpointer 要求按 thread_id 隔离会话记忆；同一 user_id 复用同一条会话
+        # Checkpointer 要求按 thread_id 隔离会话记忆；同一账号复用同一条会话
         config={"configurable": {"thread_id": user_id}},
     )
 
+
+def _issue_token(username: str) -> dict[str, str]:
+    return {"token": create_session(username), "username": username}
+
+
+# ============================================================
+# 认证
+# ============================================================
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.put("/api/profiles/{user_id}")
-async def put_profile(user_id: str, profile: Profile) -> dict[str, str]:
+@app.post("/api/auth/register", status_code=201)
+async def register(body: AuthRequest) -> dict[str, str]:
     try:
-        save_profile(profile, user_id)
+        create_user(body.username, body.password)
+    except UserExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _issue_token(body.username)
+
+
+@app.post("/api/auth/login")
+async def login(body: AuthRequest) -> dict[str, str]:
+    # 用户不存在与密码错统一返回 401，避免账号枚举
+    if not verify_user(body.username, body.password):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    return _issue_token(body.username)
+
+
+@app.post("/api/auth/logout")
+async def logout(
+    authorization: str | None = Header(default=None),
+    user: str = Depends(current_user),
+) -> dict[str, str]:
+    token = authorization[len("Bearer ") :].strip()  # type: ignore[index]
+    revoke_session(token)
+    return {"username": user, "status": "logged_out"}
+
+
+@app.get("/api/me")
+async def me(user: str = Depends(current_user)) -> dict[str, str]:
+    return {"username": user}
+
+
+# ============================================================
+# 画像（按当前账号）
+# ============================================================
+
+@app.put("/api/profile")
+async def put_my_profile(
+    profile: Profile, user: str = Depends(current_user)
+) -> dict[str, str]:
+    try:
+        save_profile(profile, user)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"画像保存失败：{exc}") from exc
-    return {"user_id": user_id, "status": "saved"}
+    return {"username": user, "status": "saved"}
 
 
-@app.get("/api/profiles/{user_id}")
-async def get_profile(user_id: str) -> dict[str, Any]:
-    profile = load_profile(user_id)
+@app.get("/api/profile")
+async def get_my_profile(user: str = Depends(current_user)) -> dict[str, Any]:
+    profile = load_profile(user)
     if profile is None:
-        raise HTTPException(status_code=404, detail="未找到该用户画像")
-    return {"user_id": user_id, "profile": profile.model_dump()}
+        raise HTTPException(status_code=404, detail="尚未填写画像")
+    return {"username": user, "profile": profile.model_dump()}
 
 
-@app.get("/api/profiles")
-async def get_latest_profile() -> dict[str, Any]:
-    latest = load_latest_profile()
-    if latest is None:
-        raise HTTPException(status_code=404, detail="数据库中暂无画像")
-    user_id, profile = latest
-    return {"user_id": user_id, "profile": profile.model_dump()}
-
+# ============================================================
+# 计划生成（按当前账号）
+# ============================================================
 
 @app.post("/api/plans/generate")
 async def generate_plan_endpoint(
     request: PlanGenerateRequest,
+    user: str = Depends(current_user),
 ) -> dict[str, Any]:
     if request.profile is not None:
         profile_data = request.profile.model_dump()
     else:
-        stored = load_profile(request.user_id)
+        stored = load_profile(user)
         if stored is None:
             raise HTTPException(
                 status_code=400,
-                detail="未提供 profile，且该 user_id 在数据库中没有已存画像",
+                detail="未提供 profile，且当前账号没有已存画像",
             )
         profile_data = stored.model_dump()
 
     try:
-        result = await run_agent(request.user_id, profile_data)
+        result = await run_agent(user, profile_data)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Agent 执行失败：{exc}") from exc
 
@@ -130,29 +196,26 @@ async def generate_plan_endpoint(
         )
 
     plan = result.get("plan") or {}
-    validation = result.get("validation") or {}
     if not plan:
         raise HTTPException(
             status_code=502,
             detail={"message": "本次未生成计划", "errors": result.get("errors", [])},
         )
 
-    # 重试耗尽仍不合法：不把含编造内容的计划返回给用户，抛出降级提示
+    # 重试耗尽仍不合法：不把含编造内容的计划返回给用户
+    validation = result.get("validation") or {}
     if not validation.get("valid") and validation.get("user_message"):
-        raise HTTPException(
-            status_code=422,
-            detail={"message": validation["user_message"]},
-        )
+        raise HTTPException(status_code=422, detail={"message": validation["user_message"]})
 
     if request.persist:
         try:
-            save_plan(request.user_id, plan, "weekly_plan")
+            save_plan(user, plan, "weekly_plan")
         except Exception:
             # 计划已生成，持久化失败不应让整个请求失败
             pass
 
     return {
-        "user_id": request.user_id,
+        "username": user,
         "plan": plan,
         "validation": result.get("validation"),
         "errors": result.get("errors", []),

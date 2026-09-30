@@ -37,7 +37,7 @@ if st.button("🚀 生成一周训练 + 一日三餐", type="primary"):
         try:
             from app.agent.graph import agent_graph
 
-            user_id = st.session_state.get("user_id", "streamlit-user")
+            user_id = st.session_state.current_user
             loop = _get_event_loop()
             result = loop.run_until_complete(
                 agent_graph.ainvoke(
