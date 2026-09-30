@@ -51,7 +51,7 @@ def test_natural_language_full_profile() -> None:
     text = profile_to_natural_language(make_profile())
 
     assert text.startswith("30岁男性，身高175cm，体重70kg，目标是增肌，每周训练4天")
-    assert "可用器械：dumbbell、barbell" in text
+    assert "可用器械：哑铃（dumbbell）、杠铃（barbell）" in text
     assert "饮食偏好：high protein" in text
     assert "过敏：peanut" in text
     assert text.endswith("。")
@@ -66,11 +66,22 @@ def test_natural_language_strips_trailing_zeros() -> None:
 
 def test_natural_language_empty_optionals_say_none() -> None:
     text = profile_to_natural_language(
-        make_profile(dietary_preferences=[], allergies=[])
+        make_profile(
+            medical_conditions=[], dietary_preferences=[], allergies=[]
+        )
     )
 
+    assert "伤病情况：无伤病" in text
     assert "饮食偏好：无特殊偏好" in text
     assert "过敏：无" in text
+
+
+def test_natural_language_includes_injuries() -> None:
+    text = profile_to_natural_language(
+        make_profile(medical_conditions=["膝盖旧伤"])
+    )
+
+    assert "伤病情况：膝盖旧伤" in text
 
 
 def test_goal_labels() -> None:
@@ -89,6 +100,7 @@ def test_build_metadata_shapes() -> None:
         "user_id": "user-123",
         "goal": "muscle_gain",
         "equipment": "dumbbell,barbell",
+        "medical_conditions": "",
         "allergies": "peanut",
     }
     # Chroma 要求所有值为 str/int/float/bool，且不允许 None

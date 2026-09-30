@@ -32,13 +32,16 @@ def profile_to_natural_language(profile: Profile) -> str:
     可选的饮食偏好与过敏为空时以"无"明确标注，而不是静默省略，
     使语义检索能区分"未提供"与"有特殊限制"。
     """
+    # 固定模板：9 类信息全部出现且顺序固定，便于向量稳定编码与关键词 rerank。
+    # 每个可选维度为空都显式写"无"，使检索能区分"未提供"与"有限制"。
     parts: list[str] = [
         f"{_format_number(profile.age)}岁{_SEX_LABELS[profile.sex]}",
         f"身高{_format_number(profile.height_cm)}cm",
         f"体重{_format_number(profile.weight_kg)}kg",
         f"目标是{_GOAL_LABELS[profile.goal]}",
         f"每周训练{profile.days_per_week}天",
-        f"可用器械：{_join_items(profile.equipment)}",
+        f"可用器械：{_format_equipment(profile.equipment)}",
+        f"伤病情况：{_join_items(profile.medical_conditions, empty='无伤病')}",
         f"饮食偏好：{_join_items(profile.dietary_preferences, empty='无特殊偏好')}",
         f"过敏：{_join_items(profile.allergies, empty='无')}",
     ]
@@ -55,6 +58,7 @@ def build_metadata(profile: Profile, user_id: str) -> dict[str, str]:
         "user_id": user_id,
         "goal": profile.goal,
         "equipment": ",".join(profile.equipment),
+        "medical_conditions": ",".join(profile.medical_conditions),
         "allergies": ",".join(profile.allergies),
     }
 
@@ -85,15 +89,21 @@ def index_profile(
     )
 
 
+DEFAULT_N_RESULTS = 5
+
+
 def search_profiles(
     query_text: str,
     user_id: str,
-    n_results: int = 3,
+    n_results: int = DEFAULT_N_RESULTS,
     collection=None,
+    rerank: bool = False,
+    top_k: int | None = None,
 ) -> Sequence[str]:
     """按自然语言查询检索画像文档，并按 user_id 过滤。
 
-    供"用户要求调整计划"节点使用：返回匹配到的画像自然语言描述。
+    n_results 默认 5（调参：由 3 增大以提高召回）；rerank=True 时
+    在向量召回结果上再做一次简单关键词重排（见 keyword_rerank）。
     """
     collection = collection or get_user_profiles_collection()
     results = collection.query(
@@ -102,7 +112,92 @@ def search_profiles(
         where={"user_id": user_id},
     )
     documents = results.get("documents") or []
-    return documents[0] if documents else []
+    candidates = documents[0] if documents else []
+    if rerank:
+        return keyword_rerank(query_text, candidates, top_k=top_k or n_results)
+    return candidates
+
+
+# ============================================================
+# 关键词 rerank（可选，轻量，无模型调用）
+# ============================================================
+
+# 语义维度：查询中命中"触发词"，则文档中出现"文档形态"即得分。
+# 文档形态与 profile_to_natural_language 的渲染结果保持一致。
+_RERANK_KEYWORD_GROUPS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    # 目标
+    (("增肌",), ("目标是增肌",)),
+    (("减脂", "瘦"), ("目标是减脂",)),
+    (("塑形",), ("塑形",)),
+    # 器械
+    (("健身房",), ("健身房（全部器械可用）",)),
+    (("哑铃", "dumbbell"), ("可用器械：dumbbell", "dumbbell")),
+    (("杠铃", "barbell"), ("可用器械：barbell", "barbell")),
+    (("弹力带", "band"), ("band",)),
+    (("无器械", "自重", "没有任何器械"), ("bodyweight", "无器械")),
+    # 饮食与过敏
+    (("素食", "吃素"), ("素食",)),
+    (("乳糖不耐", "奶制品"), ("乳糖",)),
+    (("不吃牛肉",), ("不吃牛肉",)),
+    (("不吃海鲜",), ("不吃海鲜", "海鲜")),
+    # 伤病
+    (("膝盖",), ("膝盖",)),
+    (("肩",), ("肩",)),
+)
+
+
+def extract_query_keywords(query_text: str) -> list[tuple[str, ...]]:
+    """提取查询命中的语义维度（返回对应的文档形态元组列表）。"""
+    matched: list[tuple[str, ...]] = []
+    for triggers, doc_forms in _RERANK_KEYWORD_GROUPS:
+        if any(trigger in query_text for trigger in triggers):
+            matched.append(doc_forms)
+    return matched
+
+
+def keyword_rerank(
+    query_text: str,
+    documents: Sequence[str],
+    top_k: int = 3,
+) -> list[str]:
+    """对向量召回的文档做简单关键词重排。
+
+    打分：文档命中查询语义维度的数量（命中越多排越前）；
+    分数相同保持原相对顺序（向量相似度作为隐式 tie-break，稳定排序）。
+    无任何关键词命中时顺序不变，等价于纯向量结果。
+    """
+    keyword_groups = extract_query_keywords(query_text)
+
+    def score(doc: str) -> int:
+        return sum(
+            1
+            for forms in keyword_groups
+            if any(form in doc for form in forms)
+        )
+
+    ranked = sorted(documents, key=score, reverse=True)
+    return ranked[:top_k]
+
+
+# 器械标识 -> 中文标签（英文保留括号内：中文查询靠标签命中，英文查询/rerank 不受影响）
+_EQUIPMENT_LABELS = {
+    "dumbbell": "哑铃（dumbbell）",
+    "barbell": "杠铃（barbell）",
+    "kettlebell": "壶铃（kettlebell）",
+    "band": "弹力带（band）",
+    "bodyweight": "自重（bodyweight）",
+    "bench": "卧推凳（bench）",
+    "cable": "绳索器械（cable）",
+    "machine": "固定器械（machine）",
+    "pull-up bar": "引体杆（pull-up bar）",
+}
+
+
+def _format_equipment(items: Sequence[str]) -> str:
+    """渲染器械列表；gym（健身房）折叠值转成可读中文，其余加中文标签。"""
+    if items == ["gym"]:
+        return "健身房（全部器械可用）"
+    return _join_items([_EQUIPMENT_LABELS.get(item, item) for item in items])
 
 
 def _format_number(value: float) -> str:

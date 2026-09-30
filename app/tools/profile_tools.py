@@ -96,6 +96,9 @@ def build_profile(raw: dict[str, Any]) -> Profile:
     data = dict(raw)
     try:
         data["equipment"] = normalize_equipment(data.get("equipment"))
+        data["medical_conditions"] = normalize_text_list(
+            data.get("medical_conditions")
+        )
         data["dietary_preferences"] = normalize_text_list(data.get("dietary_preferences"))
         data["allergies"] = normalize_text_list(data.get("allergies"))
         return Profile(**data)
