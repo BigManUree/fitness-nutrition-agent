@@ -26,7 +26,9 @@ def _format_exercises(items: list[dict]) -> str:
     for it in items:
         muscles = ",".join(it.get("primary_muscles", [])[:3])
         lines.append(
-            f"- {it['name']} | {muscles} | {it.get('equipment')} | {it.get('difficulty')}"
+            f"- {it['name']} | {muscles} | {it.get('equipment')} | "
+            f"{it.get('difficulty')} | {it.get('mechanic')} | {it.get('force')} | "
+            f"{it.get('category')}"
         )
     return "\n".join(lines) or "（无候选动作）"
 
@@ -37,7 +39,8 @@ def _format_foods(items: list[dict]) -> str:
         p = it.get("per_100g") or {}
         lines.append(
             f"- {it['name']} | {p.get('calories')}千卡 / "
-            f"蛋白{p.get('protein')}g / 碳水{p.get('carbs')}g / 脂肪{p.get('fat')}g"
+            f"蛋白{p.get('protein')}g / 碳水{p.get('carbs')}g / 脂肪{p.get('fat')}g / "
+            f"纤维{p.get('fiber')}g / 钠{p.get('sodium')}mg"
         )
     return "\n".join(lines) or "（无候选食物）"
 

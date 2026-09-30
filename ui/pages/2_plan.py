@@ -71,6 +71,8 @@ if plan:
 
     tab1, tab2 = st.tabs(["🏋️ 一周训练计划", "🍱 一日三餐"])
     with tab1:
+        if plan.get("weight_guidance"):
+            st.info(plan["weight_guidance"])
         render_weekly_plan(plan.get("weekly_plan", []))
     with tab2:
         render_meals(plan.get("daily_meals", {}))

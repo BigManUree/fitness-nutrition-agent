@@ -61,6 +61,29 @@ _EXERCISE_ITEM_SCHEMA = {
         "difficulty": {"type": ["string", "null"], "enum": DIFFICULTIES + [None]},
         "force": {"type": ["string", "null"]},
         "mechanic": {"type": ["string", "null"]},
+        # 来自 MCP 的动作指导（确定性注入计划，不交给模型编写）
+        "form_tips": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+        "common_mistakes": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+        "safety": {"type": ["string", "null"], "maxLength": 300},
+        # 完整分步教学、动作简介、变化动作、别名、示范图（相对路径）、演示视频
+        "instructions": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+        "overview": {"type": ["string", "null"], "maxLength": 600},
+        "variations": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+        "keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 10},
+        "images": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+        "videos": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "aspect_ratio": {"type": ["string", "null"]},
+                    "duration_seconds": {"type": ["number", "null"]},
+                },
+                "required": ["url"],
+            },
+        },
     },
     "required": ["id", "name", "primary_muscles", "secondary_muscles"],
     "additionalProperties": False,

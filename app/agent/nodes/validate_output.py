@@ -48,7 +48,7 @@ def validate_output(state: AgentState) -> AgentState:
             if name not in exercise_names:
                 fabricated_exercises.append(name)
                 violations.append(f"编造动作：{name}（不在检索候选动作列表中）")
-            for field in ("sets", "reps", "rest"):
+            for field in ("sets", "reps", "rest", "weight"):
                 if not ex.get(field):
                     violations.append(f"动作 {name} 缺少字段 {field}")
 

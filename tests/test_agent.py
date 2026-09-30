@@ -25,7 +25,8 @@ def make_plan(exercise: str = "Dumbbell Press", food: str = "EGG") -> dict:
         "day": 1,
         "focus": "push",
         "exercises": [
-            {"name": exercise, "sets": 3, "reps": "8-12", "rest": "60秒"}
+            {"name": exercise, "sets": 3, "reps": "8-12", "rest": "60秒",
+             "weight": "每只手8-12kg"}
         ],
     }
     return {

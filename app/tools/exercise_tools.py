@@ -26,6 +26,8 @@ from app.utils.validators import partition_valid
 
 DEFAULT_LIMIT = 20
 SUBSTITUTE_DEFAULT_LIMIT = 5
+# MCP 数据中自重动作的 equipment 取值（自重人人可用，不受器械限制）
+BODYWEIGHT = "body only"
 # 每种器械反查候选时的拉取量（候选池越大，排序后质量越稳）
 _SUBSTITUTE_POOL_PER_EQUIPMENT = 20
 
@@ -163,7 +165,15 @@ async def substitute_exercise(
     # 健身房全器械可用：不带 equipment 筛选一次拉全，避免按 "gym" 过滤查不到
     full_gym = "gym" in equipment_available
     equipment_list = [None] if full_gym or not equipment_available else equipment_available
-    candidates = await _collect_alternatives(muscle_key, equipment_list)
+
+    # 优先采用原动作自带的 variations（官方推荐的同系列进阶/退阶），再补全库候选
+    variation_items = await _collect_variations(
+        original, full_gym, equipment_available
+    )
+    pool = await _collect_alternatives(muscle_key, equipment_list)
+    candidates = variation_items + [
+        item for item in pool if item["id"] not in {v["id"] for v in variation_items}
+    ]
 
     # 3) 排除原动作，打分排序
     alternatives = [
@@ -199,6 +209,10 @@ async def _find_original(name: str) -> dict[str, Any] | None:
     for item in items:
         if item["name"].lower() == target:
             return item
+    # 用别名（keywords）匹配：用户可能输入 back squat 这类俗称而非标准名
+    for item in items:
+        if any(target == kw.strip().lower() for kw in item.get("keywords", [])):
+            return item
     return items[0] if items else None
 
 
@@ -223,6 +237,29 @@ async def _collect_alternatives(
                 seen.add(item["id"])
                 merged.append(item)
     return merged
+
+
+async def _collect_variations(
+    original: dict[str, Any], full_gym: bool, equipment_available: list[str]
+) -> list[dict[str, Any]]:
+    """解析原动作的 variations，按器械/同肌群过滤；这些是官方指定的首选替代。"""
+    muscle_key = _muscle_key_from_item(original)
+    allowed = set(equipment_available)
+    picked: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for var_name in original.get("variations", []):
+        item = await _find_original(var_name)
+        if item is None or item["id"] in seen:
+            continue
+        if muscle_key and not _muscle_is_primary(muscle_key, item):
+            continue
+        if not full_gym and equipment_available:
+            equip = item.get("equipment")
+            if equip not in allowed and equip != BODYWEIGHT:
+                continue
+        seen.add(item["id"])
+        picked.append(item)
+    return picked
 
 
 def _annotate_match(
@@ -308,6 +345,25 @@ def _normalize_item(raw: dict[str, Any]) -> dict[str, Any]:
         "difficulty": raw.get("level"),
         "force": raw.get("force"),
         "mechanic": raw.get("mechanic"),
+        # 动作指导：直接取 MCP 原文并限长，供确定性节点注入计划
+        "form_tips": [str(t) for t in (raw.get("exerciseTips") or [])[:4]],
+        "common_mistakes": [str(t) for t in (raw.get("commonMistakes") or [])[:3]],
+        "safety": (str(raw["safetyInfo"])[:300] if raw.get("safetyInfo") else None),
+        "instructions": [str(t) for t in (raw.get("instructions") or [])[:8]],
+        "overview": (str(raw["overview"])[:600] if raw.get("overview") else None),
+        "variations": [str(t) for t in (raw.get("variations") or [])[:8]],
+        "keywords": [str(t) for t in (raw.get("keywords") or [])[:10]],
+        "images": [str(t) for t in (raw.get("images") or [])[:4]],
+        "videos": [_normalize_video(v) for v in (raw.get("videos") or [])[:3]],
+    }
+
+
+def _normalize_video(raw: dict[str, Any]) -> dict[str, Any]:
+    """单个演示视频 -> 内部结构（保留宽高比与时长，供前端自适应尺寸）。"""
+    return {
+        "url": raw.get("url", ""),
+        "aspect_ratio": raw.get("aspectRatio"),
+        "duration_seconds": raw.get("durationSeconds"),
     }
 
 

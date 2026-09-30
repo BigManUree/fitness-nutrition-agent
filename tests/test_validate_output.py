@@ -26,7 +26,8 @@ def _day(exercise: str) -> dict[str, Any]:
     return {
         "day": 1,
         "exercises": [
-            {"name": exercise, "sets": 3, "reps": "10", "rest": "60秒"}
+            {"name": exercise, "sets": 3, "reps": "10", "rest": "60秒",
+             "weight": "每只手8-12kg"}
         ],
     }
 
