@@ -1,0 +1,47 @@
+# 密钥与环境配置（绝不进入镜像层）
+.env
+.mcp.json
+
+# 本地数据库与向量索引（容器内由 entrypoint 初始化，
+# 或通过挂载卷提供，不把开发数据烤进镜像）
+data/app.db
+data/app.db-journal
+data/app.db-wal
+data/test_app.db
+data/test_app.db-journal
+data/test_app.db-wal
+data/chroma_db/
+data/run/
+
+# 运行日志
+logs/
+
+# Python 缓存与虚拟环境
+**/__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# 测试与测试数据（运行镜像不需要）
+tests/
+.pytest_cache/
+.ruff_cache/
+
+# Git 与本地配置
+.git/
+.gitignore
+.agents/
+.claude/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 文档与构建文件
+*.md
+docs/
+Dockerfile
+docker-compose.yml
+.dockerignore
