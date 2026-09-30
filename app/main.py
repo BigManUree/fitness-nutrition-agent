@@ -113,10 +113,18 @@ async def generate_plan_endpoint(
         )
 
     plan = result.get("plan") or {}
+    validation = result.get("validation") or {}
     if not plan:
         raise HTTPException(
             status_code=502,
             detail={"message": "本次未生成计划", "errors": result.get("errors", [])},
+        )
+
+    # 重试耗尽仍不合法：不把含编造内容的计划返回给用户，抛出降级提示
+    if not validation.get("valid") and validation.get("user_message"):
+        raise HTTPException(
+            status_code=422,
+            detail={"message": validation["user_message"]},
         )
 
     if request.persist:

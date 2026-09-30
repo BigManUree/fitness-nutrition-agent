@@ -39,6 +39,32 @@ def make_plan(exercise: str = "Dumbbell Press", food: str = "EGG") -> dict:
     }
 
 
+async def test_search_exercises_node_gym_keeps_all_equipment(monkeypatch):
+    """equipment 含 gym 时，非画像器械的动作也应保留（健身房全器械）。"""
+    from app.agent.nodes import search_exercises as node_module
+
+    async def fake_search(*, muscle, limit, **kwargs):
+        return {"items": [{"name": f"{muscle}-x", "equipment": "cable"}]}
+
+    monkeypatch.setattr(node_module, "search_exercises", fake_search)
+    profile = dict(VALID_PROFILE, equipment=["gym"])
+
+    result = await node_module.search_exercises_node({"profile": profile})
+    assert result["exercise_candidates"], "gym 画像不应因器械过滤掉任何动作"
+
+
+async def test_search_exercises_node_filters_home_equipment(monkeypatch):
+    """非 gym 画像：不在器械范围内的动作被过滤。"""
+    from app.agent.nodes import search_exercises as node_module
+
+    async def fake_search(*, muscle, limit, **kwargs):
+        return {"items": [{"name": "cable-only", "equipment": "cable"}]}
+
+    monkeypatch.setattr(node_module, "search_exercises", fake_search)
+    result = await node_module.search_exercises_node({"profile": dict(VALID_PROFILE)})
+    assert not result["exercise_candidates"]
+
+
 def test_collect_profile_valid():
     result = collect_profile({"profile": dict(VALID_PROFILE)})
     assert result["missing_fields"] == []
@@ -74,7 +100,9 @@ def test_validate_detects_fabrication_and_day_mismatch():
     result = validate_output(state)
     violations = " ".join(result["validation"]["violations"])
     assert not result["validation"]["valid"]
-    assert "疑似编造" in violations
+    assert "编造动作" in violations
+    # make_plan 同一 day 出现 3 次，故编造名重复登记
+    assert "不存在的动作" in result["validation"]["fabricated_exercises"]
 
 
 def test_routing_profile_incomplete_ends():

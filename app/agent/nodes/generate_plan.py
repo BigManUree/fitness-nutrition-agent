@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agent.llm import get_llm
 from app.agent.prompts import GENERATE_PLAN_SYSTEM, GENERATE_PLAN_USER
 from app.agent.state import AgentState
+from app.utils.performance_logger import USAGE_KEY, extract_llm_usage, log_performance
 
 
 def _parse_json(raw: str) -> dict:
@@ -41,8 +42,24 @@ def _format_foods(items: list[dict]) -> str:
     return "\n".join(lines) or "（无候选食物）"
 
 
+@log_performance("generate_plan")
 async def generate_plan(state: AgentState) -> AgentState:
     profile = state["profile"]
+
+    # 是否为校验失败后的重试：把上轮 violations 回传给模型定向修正
+    prior_validation = state.get("validation") or {}
+    is_retry = not prior_validation.get("valid", True)
+    retry_feedback = ""
+    if is_retry:
+        violations_text = "\n".join(
+            f"- {item}" for item in prior_validation.get("violations", [])
+        )
+        retry_feedback = (
+            "\n\n【上一次生成未通过校验，存在以下问题，本次必须全部修正】\n"
+            f"{violations_text}\n"
+            "只能使用下面候选列表中的动作和食物，禁止使用列表外的任何名称。"
+        )
+
     messages = [
         SystemMessage(content=GENERATE_PLAN_SYSTEM),
         HumanMessage(
@@ -51,16 +68,27 @@ async def generate_plan(state: AgentState) -> AgentState:
                 exercises=_format_exercises(state.get("exercise_candidates", [])),
                 foods=_format_foods(state.get("nutrition_candidates", [])),
             )
+            + retry_feedback
         ),
     ]
 
     llm = get_llm()
     errors = list(state.get("errors", []))
+    # 重试一次：校验回炉与生成异常都计入 retries（图路由据此限制最多 1 次）
+    retries = state.get("retries", 0) + (1 if is_retry else 0)
+    usage: tuple[int | None, int | None] = (None, None)
     try:
         response = await llm.ainvoke(messages)
+        usage = extract_llm_usage(response)
         plan = _parse_json(response.content)
     except Exception as exc:
         errors.append(f"计划生成/解析失败：{exc}")
-        return AgentState(plan={}, errors=errors, retries=state.get("retries", 0) + 1)
+        result = AgentState(
+            plan={}, errors=errors, retries=retries + 1
+        )
+        result[USAGE_KEY] = usage  # 模型已返回时即使解析失败也有 token 用量
+        return result
 
-    return AgentState(plan=plan, errors=errors)
+    result = AgentState(plan=plan, errors=errors, retries=retries)
+    result[USAGE_KEY] = usage
+    return result

@@ -6,6 +6,7 @@ import asyncio
 
 from app.agent.state import AgentState
 from app.tools.nutrition_tools import search_nutrition
+from app.utils.performance_logger import log_performance
 
 # 覆盖增肌/减脂餐单常见食材（中文库命中率高的基础食物）。
 # 经 stateless 桥接每次查询都要拉起一个 stdio 子进程，故保持精简。
@@ -22,6 +23,7 @@ PER_FOOD_LIMIT = 2
 MAX_CONCURRENCY = 1
 
 
+@log_performance("search_nutrition")
 async def search_nutrition_node(state: AgentState) -> AgentState:
     profile = state["profile"]
     allergies = [a.lower() for a in profile.get("allergies", [])]

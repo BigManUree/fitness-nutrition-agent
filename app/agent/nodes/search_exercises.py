@@ -7,6 +7,7 @@ import asyncio
 from app.agent.state import AgentState
 from app.tools.exercise_tools import search_exercises
 from app.tools.profile_tools import GYM_EQUIPMENT
+from app.utils.performance_logger import log_performance
 
 # 一周分化需要覆盖的大肌群（使用 tools 层支持的别名）
 MUSCLE_GROUPS = [
@@ -24,6 +25,7 @@ PER_GROUP_LIMIT = 12
 MAX_CONCURRENCY = 3
 
 
+@log_performance("search_exercises")
 async def search_exercises_node(state: AgentState) -> AgentState:
     profile = state["profile"]
     profile_equipment = profile.get("equipment", [])
