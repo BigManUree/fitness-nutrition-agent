@@ -6,10 +6,14 @@ SQLITE_DB_PATH 指向临时库，不碰开发数据。
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app import main as api_main
+
+TEST_API_KEY = "test-api-key"
 
 SAMPLE_PROFILE = {
     "sex": "male",
@@ -46,13 +50,31 @@ FAKE_PLAN = {
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test_api.db"))
-    return TestClient(api_main.app)
+    # 固定一个测试密钥并随每个请求发送，与生产 .env 隔离
+    monkeypatch.setattr(
+        api_main, "settings", replace(api_main.settings, api_key=TEST_API_KEY)
+    )
+    return TestClient(api_main.app, headers={"X-API-Key": TEST_API_KEY})
 
 
 def test_health(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
+
+
+def test_health_skips_api_key(client):
+    # default_headers 之外单独发请求：/health 无密钥也必须可访问（容器健康检查依赖）
+    bare = TestClient(api_main.app)
+    assert bare.get("/health").status_code == 200
+
+
+def test_missing_or_wrong_api_key_rejected(client):
+    bare = TestClient(api_main.app)
+    assert bare.get("/api/profiles").status_code == 401
+    assert client.get(
+        "/api/profiles", headers={"X-API-Key": "wrong-key"}
+    ).status_code == 401
 
 
 def test_profile_save_get_roundtrip(client):

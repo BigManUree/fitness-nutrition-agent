@@ -41,6 +41,8 @@ services:
       - CHROMA_DB_PATH=/app/data/chroma_db
     volumes:
       - ./data:/app/data
+      # Streamlit 密码配置（只读挂载；文件在 .gitignore 中，不进镜像/仓库）
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     ports:
       - "8501:8501"
     extra_hosts:

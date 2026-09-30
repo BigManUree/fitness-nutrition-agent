@@ -15,9 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.config import get_settings
 from app.db.models import Profile
 from app.db.sqlite_client import load_latest_profile, load_profile, save_plan, save_profile
 
@@ -26,6 +28,21 @@ app = FastAPI(
     version="0.1.0",
     description="根据身体条件、目标与器械生成一周训练计划与一日三餐。",
 )
+
+settings = get_settings()
+
+
+@app.middleware("http")
+async def verify_api_key(request: Request, call_next):
+    """内部调用鉴权：除 /health 外，请求头 X-API-Key 必须与 .env 中 API_KEY 一致。
+
+    未配置 API_KEY（或仍为占位符）时不启用校验，便于本地开发与测试。
+    """
+    if request.url.path == "/health" or not settings.api_auth_enabled:
+        return await call_next(request)
+    if request.headers.get("X-API-Key") != settings.api_key:
+        return JSONResponse(status_code=401, content={"detail": "无效或缺失的 X-API-Key"})
+    return await call_next(request)
 
 
 class PlanGenerateRequest(BaseModel):

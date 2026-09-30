@@ -239,6 +239,23 @@ def wait_until_ready() -> bool:
 # up / down / status
 # ------------------------------------------------------------
 
+def open_embedding_log() -> tuple[Path, Any]:
+    """以追加模式打开嵌入服务日志。
+
+    Windows 下若有残留进程占用该日志（PermissionError），改用带时间戳的备用
+    文件名，避免日志锁挡住服务启动。
+    """
+    path = LOG_DIR / "embedding_server.log"
+    try:
+        return path, path.open("ab")
+    except PermissionError:
+        alt = path.with_name(
+            f"{path.stem}-{time.strftime('%Y%m%d-%H%M%S')}{path.suffix}"
+        )
+        print(f"[warn] {path.name} 被占用，本次改用日志 {alt.name}")
+        return alt, alt.open("ab")
+
+
 def up() -> bool:
     pid = _read_pid()
     if pid and _process_exists(pid):
@@ -280,10 +297,10 @@ def up() -> bool:
 
     PID_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOG_DIR / "embedding_server.log"
+    log_file, log_handle = open_embedding_log()
 
     popen_kwargs: dict[str, Any] = {
-        "stdout": log_file.open("ab"),
+        "stdout": log_handle,
         "stderr": subprocess.STDOUT,
         "env": env,
     }
@@ -295,6 +312,7 @@ def up() -> bool:
     print(f"[start] llama-server（后端 {BACKEND}）-> http://{HOST}:{PORT}/v1")
     print(f"        模型 {MODEL_REF}，日志 {log_file.relative_to(PROJECT_ROOT)}")
     proc = subprocess.Popen(argv, **popen_kwargs)  # noqa: S603 - argv 受控
+    log_handle.close()  # 子进程已继承句柄，关闭父进程副本
     PID_FILE.write_text(str(proc.pid), encoding="ascii")
 
     if wait_until_ready():

@@ -96,6 +96,23 @@ def log_path(name: str) -> Path:
     return LOG_DIR / f"{name}.log"
 
 
+def open_log(name: str) -> tuple[Path, Any]:
+    """以追加模式打开日志。
+
+    Windows 下若有残留进程仍占用该日志（PermissionError），改用带时间戳的
+    备用文件名，避免一个日志锁挡住整条启动链。
+    """
+    path = log_path(name)
+    try:
+        return path, path.open("ab")
+    except PermissionError:
+        alt = path.with_name(
+            f"{path.stem}-{time.strftime('%Y%m%d-%H%M%S')}{path.suffix}"
+        )
+        print(f"[warn] {path.name} 被占用，本次改用日志 {alt.name}")
+        return alt, alt.open("ab")
+
+
 def is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(timeout)
@@ -230,7 +247,7 @@ def start_server(name: str, server: dict[str, Any]) -> bool:
 
     PID_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = log_path(name).open("ab")
+    log_actual, log_file = open_log(name)
 
     popen_kwargs: dict[str, Any] = {
         "stdout": log_file,
@@ -244,7 +261,7 @@ def start_server(name: str, server: dict[str, Any]) -> bool:
     else:
         popen_kwargs["start_new_session"] = True
 
-    print(f"[start] {name}: {server['url']} （日志 {log_path(name).relative_to(PROJECT_ROOT)}）")
+    print(f"[start] {name}: {server['url']} （日志 {log_actual.relative_to(PROJECT_ROOT)}）")
     try:
         proc = subprocess.Popen(cmd, **popen_kwargs)  # noqa: S603 - 命令来自受信任的 .mcp.json
     finally:
