@@ -1,0 +1,526 @@
+{
+  "description": "健身营养 Agent 评估集：10 条正向（目标×器械×饮食约束组合）+ 10 条边界（信息不全、目标模糊、极端值等）。expected.exercise_count 为一周计划动作条数预期（训练天数×每日4个动作），meal_count 为餐次数量（早/午/晚=3）；metrics 由离线评估脚本回填，初始为 null。",
+  "version": "1.0",
+  "cases": [
+    {
+      "id": "E-01",
+      "type": "positive",
+      "profile": {
+        "sex": "male",
+        "age": 28,
+        "height_cm": 178,
+        "weight_kg": 74,
+        "goal": "muscle_gain",
+        "days_per_week": 4,
+        "equipment": ["gym"],
+        "dietary_preferences": [],
+        "allergies": []
+      },
+      "query": "我在健身房训练，什么器械都有，帮我生成一周增肌计划和一日三餐",
+      "expected": {
+        "exercise_count": 16,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals", "rationale"],
+        "should_not_contain": ["未找到", "服务不可用"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-02",
+      "type": "positive",
+      "profile": {
+        "sex": "female",
+        "age": 26,
+        "height_cm": 163,
+        "weight_kg": 58,
+        "goal": "fat_loss",
+        "days_per_week": 3,
+        "equipment": ["dumbbell"],
+        "dietary_preferences": ["素食"],
+        "allergies": []
+      },
+      "query": "家里只有哑铃，我吃素，帮我安排减脂训练和三餐",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["鸡胸肉", "牛肉", "barbell"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-03",
+      "type": "positive",
+      "profile": {
+        "sex": "male",
+        "age": 35,
+        "height_cm": 172,
+        "weight_kg": 80,
+        "goal": "recomp",
+        "days_per_week": 4,
+        "equipment": ["bodyweight"],
+        "dietary_preferences": [],
+        "allergies": []
+      },
+      "query": "我没有任何器械，膝盖有旧伤，想塑形，帮我安排不伤膝盖的计划",
+      "expected": {
+        "exercise_count": 16,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["深蹲", "跳跃", "jump"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-04",
+      "type": "positive",
+      "profile": {
+        "sex": "male",
+        "age": 30,
+        "height_cm": 175,
+        "weight_kg": 68,
+        "goal": "muscle_gain",
+        "days_per_week": 3,
+        "equipment": ["barbell", "dumbbell"],
+        "dietary_preferences": [],
+        "allergies": []
+      },
+      "query": "每周只能练3天，乳糖不耐，帮我安排增肌计划，不要奶制品",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["牛奶", "奶酪", "milk"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-05",
+      "type": "positive",
+      "profile": {
+        "sex": "female",
+        "age": 32,
+        "height_cm": 168,
+        "weight_kg": 65,
+        "goal": "fat_loss",
+        "days_per_week": 5,
+        "equipment": ["gym"],
+        "dietary_preferences": ["不吃牛肉"],
+        "allergies": []
+      },
+      "query": "健身房减脂，每周练5天，我不吃牛肉",
+      "expected": {
+        "exercise_count": 20,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["牛肉", "beef"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-06",
+      "type": "positive",
+      "profile": {
+        "sex": "male",
+        "age": 24,
+        "height_cm": 180,
+        "weight_kg": 72,
+        "goal": "muscle_gain",
+        "days_per_week": 3,
+        "equipment": ["barbell"],
+        "dietary_preferences": [],
+        "allergies": []
+      },
+      "query": "家里有杠铃，帮我做增肌训练和饮食安排",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["dumbbell", "哑铃"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-07",
+      "type": "positive",
+      "profile": {
+        "sex": "female",
+        "age": 29,
+        "height_cm": 160,
+        "weight_kg": 62,
+        "goal": "fat_loss",
+        "days_per_week": 4,
+        "equipment": ["bodyweight"],
+        "dietary_preferences": ["素食"],
+        "allergies": []
+      },
+      "query": "没有器械、吃素，每周练4天，帮我做居家减脂计划",
+      "expected": {
+        "exercise_count": 16,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["dumbbell", "barbell", "鸡胸肉"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-08",
+      "type": "positive",
+      "profile": {
+        "sex": "male",
+        "age": 33,
+        "height_cm": 176,
+        "weight_kg": 78,
+        "goal": "recomp",
+        "days_per_week": 4,
+        "equipment": ["gym"],
+        "dietary_preferences": [],
+        "allergies": []
+      },
+      "query": "健身房塑形，肩部有旧伤，避免推举类动作，帮我安排计划",
+      "expected": {
+        "exercise_count": 16,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["Overhead Press", "肩上推举", "直立划船"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-09",
+      "type": "positive",
+      "profile": {
+        "sex": "male",
+        "age": 27,
+        "height_cm": 174,
+        "weight_kg": 70,
+        "goal": "muscle_gain",
+        "days_per_week": 2,
+        "equipment": ["barbell", "dumbbell"],
+        "dietary_preferences": ["不吃海鲜"],
+        "allergies": []
+      },
+      "query": "每周只能练2天想增肌，不吃海鲜，帮我安排全身训练和三餐",
+      "expected": {
+        "exercise_count": 8,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["虾", "鱼", "salmon"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-10",
+      "type": "positive",
+      "profile": {
+        "sex": "female",
+        "age": 31,
+        "height_cm": 165,
+        "weight_kg": 60,
+        "goal": "fat_loss",
+        "days_per_week": 3,
+        "equipment": ["band"],
+        "dietary_preferences": [],
+        "allergies": []
+      },
+      "query": "家里只有弹力带，乳糖不耐，帮我做减脂计划",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "daily_meals"],
+        "should_not_contain": ["牛奶", "barbell", "dumbbell"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-11",
+      "type": "boundary",
+      "profile": {
+        "sex": "male",
+        "age": 28,
+        "height_cm": 175,
+        "weight_kg": 72,
+        "goal": "muscle_gain"
+      },
+      "query": "帮我生成增肌计划",
+      "expected": {
+        "exercise_count": 0,
+        "meal_count": 0,
+        "should_contain_keywords": ["缺失", "equipment", "days_per_week"],
+        "should_not_contain": ["weekly_plan"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-12",
+      "type": "boundary",
+      "profile": {
+        "sex": "female",
+        "age": 25,
+        "height_cm": 162,
+        "weight_kg": 55,
+        "goal": "general_fitness",
+        "days_per_week": 3,
+        "equipment": ["dumbbell"]
+      },
+      "query": "我想变好看，你看着安排",
+      "expected": {
+        "exercise_count": 0,
+        "meal_count": 0,
+        "should_contain_keywords": ["减脂", "增肌", "目标"],
+        "should_not_contain": ["weekly_plan"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-13",
+      "type": "boundary",
+      "profile": {
+        "sex": "male",
+        "age": 30,
+        "height_cm": 177,
+        "weight_kg": 75,
+        "goal": "muscle_gain",
+        "days_per_week": 1,
+        "equipment": ["gym"]
+      },
+      "query": "我每周只能练1天，但想增肌，帮我安排",
+      "expected": {
+        "exercise_count": 4,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "全身"],
+        "should_not_contain": ["服务不可用"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-14",
+      "type": "boundary",
+      "profile": {
+        "sex": "male",
+        "age": 65,
+        "height_cm": 170,
+        "weight_kg": 72,
+        "goal": "general_fitness",
+        "days_per_week": 3,
+        "equipment": ["gym"]
+      },
+      "query": "我65岁有高血压，想保持健康，能练吗，帮我安排温和一点的计划",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["咨询医生", "低强度"],
+        "should_not_contain": ["大重量", "极限"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-15",
+      "type": "boundary",
+      "profile": {
+        "sex": "male",
+        "age": 40,
+        "height_cm": 210,
+        "weight_kg": 130,
+        "goal": "fat_loss",
+        "days_per_week": 4,
+        "equipment": ["gym"]
+      },
+      "query": "我个子很高体重也大，帮我安排减脂计划，注意关节负担",
+      "expected": {
+        "exercise_count": 16,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "低冲击"],
+        "should_not_contain": ["跳跃"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-16",
+      "type": "boundary",
+      "profile": {
+        "sex": "female",
+        "age": 24,
+        "height_cm": 158,
+        "weight_kg": 40,
+        "goal": "muscle_gain",
+        "days_per_week": 9,
+        "equipment": ["dumbbell"]
+      },
+      "query": "我想每天都练，帮我安排增肌计划",
+      "expected": {
+        "exercise_count": 0,
+        "meal_count": 0,
+        "should_contain_keywords": ["days_per_week", "不能超过7"],
+        "should_not_contain": ["weekly_plan"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-17",
+      "type": "boundary",
+      "profile": {
+        "sex": "female",
+        "age": 14,
+        "height_cm": 155,
+        "weight_kg": 45,
+        "goal": "general_fitness",
+        "days_per_week": 2,
+        "equipment": ["bodyweight"]
+      },
+      "query": "我刚上初中，想锻炼一下，帮我安排适合青少年的计划",
+      "expected": {
+        "exercise_count": 8,
+        "meal_count": 3,
+        "should_contain_keywords": ["weekly_plan", "自重"],
+        "should_not_contain": ["大重量", "极限"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-18",
+      "type": "boundary",
+      "profile": {
+        "sex": "male",
+        "age": 28,
+        "height_cm": 175,
+        "weight_kg": 70,
+        "goal": "muscle_gain",
+        "days_per_week": 3,
+        "equipment": ["dumbbell"]
+      },
+      "query": "把天马流星拳加到我的计划里，再帮我安排其他动作",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["未在动作库中找到"],
+        "should_not_contain": ["天马流星拳"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-19",
+      "type": "boundary",
+      "profile": {
+        "sex": "female",
+        "age": 27,
+        "height_cm": 164,
+        "weight_kg": 57,
+        "goal": "recomp",
+        "days_per_week": 4,
+        "equipment": ["band"]
+      },
+      "query": "我只有弹力带，但计划里必须给我安排杠铃深蹲，不然我不练",
+      "expected": {
+        "exercise_count": 16,
+        "meal_count": 3,
+        "should_contain_keywords": ["器械", "弹力带"],
+        "should_not_contain": ["Barbell Squat", "杠铃深蹲"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    },
+    {
+      "id": "E-20",
+      "type": "boundary",
+      "profile": {
+        "sex": "male",
+        "age": 29,
+        "height_cm": 176,
+        "weight_kg": 73,
+        "goal": "fat_loss",
+        "days_per_week": 3,
+        "equipment": ["dumbbell"],
+        "dietary_preferences": [],
+        "allergies": ["花生", "海鲜", "鸡蛋", "牛奶"]
+      },
+      "query": "我对很多常见食物过敏，帮我做减脂三餐，别让我过敏",
+      "expected": {
+        "exercise_count": 12,
+        "meal_count": 3,
+        "should_contain_keywords": ["daily_meals"],
+        "should_not_contain": ["花生", "虾", "鸡蛋", "牛奶"]
+      },
+      "metrics": {
+        "retrieval_accuracy": null,
+        "tool_call_accuracy": null,
+        "plan_quality_score": null
+      }
+    }
+  ]
+}

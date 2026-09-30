@@ -13,9 +13,14 @@ htmlcov/
 .env
 .mcp.json
 
+# 本地 Agent / Claude 配置（技能、会话设置等，不随仓库分发）
+.agents/
+.claude/
+
 # 数据与本地数据库
 data/chroma_db/
 data/app.db
+data/test_app.db
 identifier.sqlite
 data/*.db-journal
 data/*.db-wal
