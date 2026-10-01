@@ -171,15 +171,36 @@ async def me(user: str = Depends(current_user)) -> dict[str, str]:
 # 画像（按当前账号）
 # ============================================================
 
+def index_profile_if_available(profile: Profile, user_id: str) -> str | None:
+    """把画像写入向量库；失败返回警告文案（不抛），成功返回 None。"""
+    try:
+        from app.rag.profile_indexer import index_profile
+
+        index_profile(profile, user_id)
+    except Exception as exc:
+        return f"向量入库失败（{exc}），不影响生成计划"
+    return None
+
+
 @app.put("/api/profile")
 async def put_my_profile(
     profile: Profile, user: str = Depends(current_user)
-) -> dict[str, str]:
+) -> dict[str, Any]:
+    from app.tools.profile_tools import ProfileToolError, build_profile
+
     try:
-        save_profile(profile, user)
+        normalized = build_profile(profile.model_dump())
+    except ProfileToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        save_profile(normalized, user)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"画像保存失败：{exc}") from exc
-    return {"username": user, "status": "saved"}
+    return {
+        "username": user,
+        "status": "saved",
+        "indexing_warning": index_profile_if_available(normalized, user),
+    }
 
 
 @app.get("/api/profile")
