@@ -12,7 +12,10 @@ import type { Plan as PlanType } from '../types/plan';
 export default function Plan() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [plan, setPlan] = useState<PlanType | null>(null);
+  // 初始化优先读缓存：从 Chat 应用替换后返回本页时，编辑随缓存保留（与 Chat.tsx 一致）
+  const [plan, setPlan] = useState<PlanType | null>(
+    () => queryClient.getQueryData<PlanType>(['plan']) ?? null,
+  );
   const [validation, setValidation] = useState<{ valid: boolean; violations?: string[] } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);

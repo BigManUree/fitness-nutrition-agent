@@ -1,4 +1,5 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { notifyUnauthorized } from './client';
 import type { Plan } from '../types/plan';
 
 export interface ChatMessage {
@@ -38,6 +39,7 @@ export function streamChat(
     body: JSON.stringify({ plan, messages, message }),
     async onopen(response) {
       if (!response.ok) {
+        if (response.status === 401) notifyUnauthorized();
         let detail = '';
         try {
           detail = JSON.stringify(await response.json());

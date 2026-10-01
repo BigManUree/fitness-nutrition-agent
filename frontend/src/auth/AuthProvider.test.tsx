@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { AuthProvider, useAuth } from './AuthProvider';
+import { UNAUTHORIZED_EVENT } from '../api/client';
 
 vi.mock('../api/auth', () => ({
   me: vi.fn(),
@@ -38,6 +39,20 @@ describe('AuthProvider', () => {
         <Probe />
       </AuthProvider>,
     );
+    await waitFor(() => expect(screen.getByText('user: none')).toBeInTheDocument());
+  });
+
+  it('clears user when the unauthorized event fires', async () => {
+    vi.mocked(me).mockResolvedValue({ username: 'alice' });
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('user: alice')).toBeInTheDocument());
+    act(() => {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    });
     await waitFor(() => expect(screen.getByText('user: none')).toBeInTheDocument());
   });
 });

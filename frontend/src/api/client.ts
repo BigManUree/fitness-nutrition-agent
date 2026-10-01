@@ -1,3 +1,12 @@
+export const UNAUTHORIZED_EVENT = 'app:unauthorized';
+
+/** 全局广播「会话失效」：AuthProvider 监听后清会话，受保护路由随之跳转登录。 */
+export function notifyUnauthorized(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
+}
+
 export class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -16,6 +25,8 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   const resp = await fetch(path, { ...init, headers, credentials: 'include' });
   if (!resp.ok) {
+    // spec §8：401 一律清会话 → 跳登录（由 AuthProvider 监听该事件）
+    if (resp.status === 401) notifyUnauthorized();
     let detail: unknown = null;
     try {
       detail = await resp.json();

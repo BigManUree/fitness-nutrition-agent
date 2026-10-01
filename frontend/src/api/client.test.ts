@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { apiFetch, ApiError, isUnauthorized } from './client';
+import { apiFetch, ApiError, isUnauthorized, UNAUTHORIZED_EVENT } from './client';
 
 describe('apiFetch', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -33,5 +33,28 @@ describe('apiFetch', () => {
     const err = await apiFetch('/api/me').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(isUnauthorized(err)).toBe(true);
+  });
+
+  it('dispatches the unauthorized event on 401', async () => {
+    let signaled = false;
+    window.addEventListener(
+      UNAUTHORIZED_EVENT,
+      () => {
+        signaled = true;
+      },
+      { once: true },
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: '未登录' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+
+    await apiFetch('/api/me').catch(() => {});
+    expect(signaled).toBe(true);
   });
 });
