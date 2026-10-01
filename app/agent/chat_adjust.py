@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -41,6 +42,26 @@ def _shared_loop() -> asyncio.AbstractEventLoop:
         asyncio.set_event_loop(loop)
         _shared_loop._loop = loop  # type: ignore[attr-defined]
     return loop
+
+
+CHAT_SYSTEM_TEMPLATE = """你是健身营养 Agent 的对话助手，帮助用户理解和微调"已生成的计划"。
+
+规则：
+1. 普通问答只能围绕下方计划内容；不要编造计划之外的新动作或新食物。
+2. 当用户要求"替换/换掉某个动作"时，必须调用 substitute_exercise 工具，
+   并根据工具返回的真实候选回答；工具返回为空时如实转述，不要自己编候选。
+3. 不做医疗诊断，不推荐极端节食或危险动作。
+4. 如果用户描述胸痛、头晕、严重关节疼痛、心悸等症状，回复：
+   "我没办法判断你的身体情况，不能给出是否可以继续锻炼的建议。该症状属于需要重视的症状，建议你暂停训练，尽快咨询医生，由专业医师评估后再决定是否运动。"
+5. 用简洁中文回答；列出候选动作时保留动作原名（英文）。
+
+当前计划：
+{plan_json}"""
+
+
+def build_chat_system_prompt(plan: dict[str, Any]) -> str:
+    """把当前计划 JSON 内嵌进对话系统提示（plan 随客户端请求带入）。"""
+    return CHAT_SYSTEM_TEMPLATE.format(plan_json=json.dumps(plan, ensure_ascii=False))
 
 
 def default_tool_runner(**kwargs: Any) -> dict[str, Any]:

@@ -21,11 +21,17 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from app.agent.chat_adjust import build_chat_system_prompt, stream_with_tools
+from app.agent.llm import get_llm
+from app.agent.safety import pre_check_message
 from app.db.models import Profile
 from app.db.sqlite_client import load_profile, save_plan, save_profile
 from app.db.users import (
@@ -97,6 +103,18 @@ class PlanGenerateRequest(BaseModel):
     persist: bool = Field(
         default=True, description="生成成功后是否把计划追加存入 generated_plans"
     )
+
+
+class ChatRequest(BaseModel):
+    """对话调整请求：plan 随请求带入（替换动作后 DB 里仍是原始计划）。"""
+
+    plan: dict[str, Any] = Field(default_factory=dict)
+    messages: list[dict[str, str]] = Field(default_factory=list)
+    message: str = Field(min_length=1)
+
+
+def _sse_event(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 async def run_agent(user_id: str, profile: dict[str, Any]) -> dict[str, Any]:
@@ -270,3 +288,39 @@ async def generate_plan_endpoint(
         "validation": result.get("validation"),
         "errors": result.get("errors", []),
     }
+
+
+@app.post("/api/plans/chat")
+def chat_stream(
+    request: ChatRequest, user: str = Depends(current_user)
+) -> StreamingResponse:
+    profile = load_profile(user)
+    if profile is None:
+        raise HTTPException(status_code=400, detail="尚未填写画像，无法进行对话调整")
+    profile_data = profile.model_dump()
+
+    def generate() -> Any:
+        guard = pre_check_message(request.message)
+        if guard is not None:
+            yield _sse_event("token", guard)
+            yield _sse_event("done", {"tool_results": []})
+            return
+        try:
+            llm = get_llm(json_mode=False, temperature=0.4)
+            messages: list[Any] = [
+                SystemMessage(content=build_chat_system_prompt(request.plan))
+            ]
+            for m in request.messages:
+                cls = HumanMessage if m.get("role") == "user" else AIMessage
+                messages.append(cls(content=m.get("content", "")))
+            messages.append(HumanMessage(content=request.message))
+            tool_results: list[dict[str, Any]] = []
+            for text in stream_with_tools(
+                llm, messages, profile_data, tool_results=tool_results
+            ):
+                yield _sse_event("token", text)
+            yield _sse_event("done", {"tool_results": tool_results})
+        except Exception as exc:
+            yield _sse_event("error", {"message": f"调用模型失败：{exc}"})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
