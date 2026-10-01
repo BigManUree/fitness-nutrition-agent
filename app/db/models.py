@@ -77,6 +77,27 @@ CREATE INDEX IF NOT EXISTS idx_performance_log_created
     ON performance_log(created_at);
 """
 
+# 翻译缓存：英文原文 -> 中文译文。translate_plan 节点先查缓存，
+# 同一动作要领/食物名跨用户、跨计划复用时不重复调用模型。
+TRANSLATION_CACHE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS translation_cache (
+    source_text TEXT PRIMARY KEY,
+    translated TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 营养检索缓存：查询词 -> 规范化后的候选食物列表。营养数据（USDA +
+# OpenNutrition）近乎静态，缓存全局共享（key 只含查询词与条数，不含 user_id），
+# 重复生成计划时直接命中、跳过 MCP 串行调用。
+NUTRITION_CACHE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS nutrition_cache (
+    cache_key TEXT PRIMARY KEY,
+    items_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 # Bad Case 台账：与 docs/bad_cases.md 的字段对应；case_id 唯一，
 # 同一 case 复盘修复走 upsert（更新 actual/fix_plan/status，刷新 updated_at）。
 BAD_CASES_SCHEMA_SQL = """

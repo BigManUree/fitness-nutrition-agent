@@ -69,13 +69,22 @@ if plan:
             "计划未通过校验：" + "；".join(validation.get("violations", []))
         )
 
+    if plan.get("translation_warning"):
+        st.warning(plan["translation_warning"])
+
     tab1, tab2 = st.tabs(["🏋️ 一周训练计划", "🍱 一日三餐"])
     with tab1:
         if plan.get("weight_guidance"):
             st.info(plan["weight_guidance"])
+        if plan.get("progression_guide"):
+            st.info(plan["progression_guide"])
         render_weekly_plan(plan.get("weekly_plan", []))
     with tab2:
-        render_meals(plan.get("daily_meals", {}))
+        render_meals(
+            plan.get("daily_meals", {}),
+            plan.get("nutrition_targets"),
+            plan.get("nutrition_totals"),
+        )
 
     st.divider()
     st.subheader("💡 为什么这样安排")

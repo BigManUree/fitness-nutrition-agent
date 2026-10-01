@@ -7,6 +7,7 @@ import json
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agent.llm import get_llm
+from app.agent.nutrition_planning import can_compute_targets, compute_targets
 from app.agent.prompts import GENERATE_PLAN_SYSTEM, GENERATE_PLAN_USER
 from app.agent.state import AgentState
 from app.utils.performance_logger import USAGE_KEY, extract_llm_usage, log_performance
@@ -63,11 +64,17 @@ async def generate_plan(state: AgentState) -> AgentState:
             "只能使用下面候选列表中的动作和食物，禁止使用列表外的任何名称。"
         )
 
+    if can_compute_targets(profile):
+        targets_json = json.dumps(compute_targets(profile), ensure_ascii=False)
+    else:
+        targets_json = "（画像信息不完整，无法计算，按常规增肌/减脂经验配餐）"
+
     messages = [
         SystemMessage(content=GENERATE_PLAN_SYSTEM),
         HumanMessage(
             content=GENERATE_PLAN_USER.format(
                 profile=json.dumps(profile, ensure_ascii=False),
+                targets=targets_json,
                 exercises=_format_exercises(state.get("exercise_candidates", [])),
                 foods=_format_foods(state.get("nutrition_candidates", [])),
             )

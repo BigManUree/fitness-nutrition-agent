@@ -10,10 +10,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from app.tools import substitute_exercise
 from app.tools.schemas import SUBSTITUTE_EXERCISE_INPUT_SCHEMA
@@ -86,6 +86,66 @@ def resolve_with_tools(
         response = llm_with_tools.invoke(messages)
 
     return response.content, tool_results
+
+
+def stream_with_tools(
+    llm: Any,
+    messages: list[Any],
+    profile: dict[str, Any],
+    *,
+    tool_runner: ToolRunner | None = None,
+    tool_results: list[dict[str, Any]] | None = None,
+) -> Iterator[str]:
+    """流式执行一轮"可能含工具调用"的对话（生成器产出文本增量）。
+
+    与 resolve_with_tools 的区别：最终回答逐 token yield（供 Streamlit 边生成
+    边显示）。子代调用循环在生成器内部执行，tool_results（如有）在生成器被
+    消费期间就地填充，调用方可在 write_stream 结束后读取。
+
+    Args:
+        tool_results: 可选的外部列表，用于把本轮的 substitute_exercise 返回
+            回传给调用方（供"应用到计划"）。
+
+    Yields:
+        模型回答的文本增量（工具调用轮次通常无正文，故不见增量）。
+    """
+    tool_runner = tool_runner or default_tool_runner
+    llm_with_tools = llm.bind_tools([SUBSTITUTE_TOOL_DEFINITION])
+    results = tool_results if tool_results is not None else []
+
+    while True:
+        # 流式生成一轮，并用 + 合并 AIMessageChunk 得到含 tool_calls 的完整消息
+        full: AIMessageChunk | None = None
+        for chunk in llm_with_tools.stream(messages):
+            full = chunk if full is None else full + chunk
+            text = _chunk_text(chunk)
+            if text:
+                yield text
+
+        if full is None or not full.tool_calls:
+            return
+
+        # 本轮为工具调用：回填工具结果，进入下一轮
+        messages.append(full)
+        for call in full.tool_calls:
+            tool_output = _run_substitute(call, profile, tool_runner)
+            results.append(tool_output)
+            messages.append(
+                ToolMessage(
+                    content=_serialize_tool_output(tool_output),
+                    tool_call_id=call["id"],
+                )
+            )
+
+
+def _chunk_text(chunk: Any) -> str:
+    """从 AIMessageChunk 提取正文增量；兼容 str 与多模态内容块列表。"""
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return ""
 
 
 def _run_substitute(

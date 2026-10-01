@@ -90,11 +90,13 @@ async def test_node_reports_failure_without_fabricating(monkeypatch):
 # ============================================================
 
 
-async def test_nutrition_empty_prompts_no_match(monkeypatch):
+async def test_nutrition_empty_prompts_no_match(monkeypatch, tmp_path):
     empty = mock_search_nutrition_empty()
     monkeypatch.setattr(nutrition_client, "search_nutrition", empty)
 
-    result = await nutrition_tools.search_nutrition("不存在的外星食物xyz")
+    result = await nutrition_tools.search_nutrition(
+        "不存在的外星食物xyz", db_path=tmp_path / "cache.db"
+    )
 
     assert empty.calls == 1
     assert result["items"] == []
@@ -103,11 +105,11 @@ async def test_nutrition_empty_prompts_no_match(monkeypatch):
     assert FALLBACK_MARKER not in result["note"]
 
 
-async def test_empty_result_is_not_retried_as_error(monkeypatch):
+async def test_empty_result_is_not_retried_as_error(monkeypatch, tmp_path):
     """空结果是正常响应（非错误），不应触发重试。"""
     empty = mock_search_nutrition_empty()
     monkeypatch.setattr(nutrition_client, "search_nutrition", empty)
 
-    await nutrition_tools.search_nutrition("xyz")
+    await nutrition_tools.search_nutrition("xyz", db_path=tmp_path / "cache.db")
 
     assert empty.calls == 1

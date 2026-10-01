@@ -196,6 +196,15 @@ _FOOD_ITEM_SCHEMA = {
         "fiber": {"type": ["number", "null"], "minimum": 0},
         "sugar": {"type": ["number", "null"], "minimum": 0},
         "sodium": {"type": ["number", "null"], "minimum": 0},
+        # 数据可信度信号（来自 nutrition-mcp，供热量核算打标）：
+        #   weight_source   分量克重来源（column=库列 / parsed_grams / parsed_mass /
+        #                   parsed_volume=按水密度估算，脆度最高）
+        #   verified_fields 经人工核验的字段名
+        #   is_correction   是否为修正记录；superseded_by 指向其修正来源的 id
+        "weight_source": {"type": ["string", "null"]},
+        "verified_fields": {"type": ["array", "null"], "items": {"type": "string"}},
+        "is_correction": {"type": ["boolean", "null"]},
+        "superseded_by": {"type": ["string", "null"]},
         # 每 100g 的标准值，始终保留以便二次计算
         "per_100g": _MACROS_SCHEMA,
     },

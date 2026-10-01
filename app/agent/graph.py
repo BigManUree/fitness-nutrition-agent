@@ -16,6 +16,7 @@ from app.agent.nodes.enrich_plan import enrich_plan
 from app.agent.nodes.generate_plan import generate_plan
 from app.agent.nodes.search_exercises import search_exercises_node
 from app.agent.nodes.search_nutrition import search_nutrition_node
+from app.agent.nodes.translate_plan import translate_plan
 from app.agent.nodes.validate_output import validate_output
 from app.agent.state import AgentState
 
@@ -54,6 +55,7 @@ def build_graph(checkpointer: bool | MemorySaver | None = None):
     graph.add_node("generate_plan", generate_plan)
     graph.add_node("validate_output", validate_output)
     graph.add_node("enrich_plan", enrich_plan)
+    graph.add_node("translate_plan", translate_plan)
 
     graph.add_edge(START, "collect_profile")
     graph.add_conditional_edges(
@@ -69,7 +71,8 @@ def build_graph(checkpointer: bool | MemorySaver | None = None):
         _route_after_validate,
         ["generate_plan", "enrich_plan", END],
     )
-    graph.add_edge("enrich_plan", END)
+    graph.add_edge("enrich_plan", "translate_plan")
+    graph.add_edge("translate_plan", END)
 
     if checkpointer is False:
         return graph.compile()
