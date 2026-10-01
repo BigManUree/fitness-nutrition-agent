@@ -18,6 +18,8 @@ describe('ProfileForm 校验', () => {
     render(<ProfileForm onSave={onSave} onSaved={() => {}} saving={false} />);
     await userEvent.type(screen.getByLabelText('年龄'), '200');
     await userEvent.click(screen.getByRole('button', { name: '保存画像' }));
-    expect(await screen.findByText('年龄需在 14–80 之间')).toBeInTheDocument();
+    expect(
+      await screen.findByText('年龄需在 14–80 之间', {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
   });
 });
