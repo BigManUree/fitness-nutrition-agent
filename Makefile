@@ -1,5 +1,5 @@
 .PHONY: install dev api embedding embed-up embed-down embed-status \
-	mcp-up mcp-down mcp-status test lint clean
+	mcp-up mcp-down mcp-status test lint clean frontend-dev frontend-build
 
 # 安装依赖
 install:
@@ -51,3 +51,12 @@ lint:
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	rm -rf .pytest_cache .ruff_cache
+
+# 前端（React + Vite）：dev server（5173，/api 代理到 8000）
+frontend-dev:
+	npm --prefix frontend run dev
+
+# 前端生产构建：产出 frontend/dist（由 FastAPI 静态托管）
+frontend-build:
+	npm --prefix frontend install
+	npm --prefix frontend run build
