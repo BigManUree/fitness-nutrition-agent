@@ -22,10 +22,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
@@ -324,3 +326,24 @@ def chat_stream(
             yield _sse_event("error", {"message": f"调用模型失败：{exc}"})
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ============================================================
+# SPA 静态托管（前端 React 构建产物；dist 未构建时 /api 仍可用）
+# ============================================================
+
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+app.mount(
+    "/assets",
+    StaticFiles(directory=str(FRONTEND_DIST / "assets"), check_dir=False),
+    name="assets",
+)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    index = FRONTEND_DIST / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    raise HTTPException(status_code=404, detail="前端未构建：请先运行 make frontend-build")
