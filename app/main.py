@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.db.models import Profile
@@ -48,15 +48,34 @@ app = FastAPI(
 # 鉴权依赖
 # ============================================================
 
-def current_user(authorization: str | None = Header(default=None)) -> str:
-    """从 Authorization: Bearer <token> 解析当前账号；无效则 401。"""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="缺失或格式错误的 Bearer token")
-    token = authorization[len("Bearer ") :].strip()
+SESSION_COOKIE_NAME = "session"
+
+
+def current_user(
+    authorization: str | None = Header(default=None),
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> str:
+    """cookie 优先、Bearer 回退解析当前账号；无效则 401。"""
+    token = session_cookie
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization[len("Bearer ") :].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="缺失或格式错误的凭证，请登录")
     username = get_session_user(token)
     if username is None:
         raise HTTPException(status_code=401, detail="token 无效或已过期，请重新登录")
     return username
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        max_age=60 * 60 * 24 * 30,
+    )
 
 
 # ============================================================
@@ -105,31 +124,41 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/auth/register", status_code=201)
-async def register(body: AuthRequest) -> dict[str, str]:
+async def register(body: AuthRequest, response: Response) -> dict[str, str]:
     try:
         create_user(body.username, body.password)
     except UserExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _issue_token(body.username)
+    payload = _issue_token(body.username)
+    _set_session_cookie(response, payload["token"])
+    return payload
 
 
 @app.post("/api/auth/login")
-async def login(body: AuthRequest) -> dict[str, str]:
+async def login(body: AuthRequest, response: Response) -> dict[str, str]:
     # 用户不存在与密码错统一返回 401，避免账号枚举
     if not verify_user(body.username, body.password):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
-    return _issue_token(body.username)
+    payload = _issue_token(body.username)
+    _set_session_cookie(response, payload["token"])
+    return payload
 
 
 @app.post("/api/auth/logout")
 async def logout(
     authorization: str | None = Header(default=None),
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     user: str = Depends(current_user),
+    response: Response = None,  # FastAPI 自动注入
 ) -> dict[str, str]:
-    token = authorization[len("Bearer ") :].strip()  # type: ignore[index]
-    revoke_session(token)
+    token = session_cookie
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization[len("Bearer ") :].strip()
+    if token:
+        revoke_session(token)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
     return {"username": user, "status": "logged_out"}
 
 
