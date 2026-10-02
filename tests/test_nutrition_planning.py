@@ -5,8 +5,11 @@ from __future__ import annotations
 import pytest
 from app.agent.nutrition_planning import (
     can_compute_targets,
+    compute_meal_budgets,
     compute_meal_totals,
     compute_targets,
+    repair_course,
+    scale_course_to_targets,
 )
 
 MALE_PROFILE = {
@@ -69,6 +72,92 @@ def test_can_compute_targets_requires_all_fields():
     assert can_compute_targets(MALE_PROFILE) is True
     incomplete = {k: v for k, v in MALE_PROFILE.items() if k != "height_cm"}
     assert can_compute_targets(incomplete) is False
+
+
+def test_meal_budgets_split_daily_targets_across_three_courses():
+    targets = compute_targets(MALE_PROFILE)
+    budgets = compute_meal_budgets(MALE_PROFILE)
+
+    assert set(budgets) == {"breakfast", "lunch", "dinner"}
+    # 分摊比例：早 30% / 午 40% / 晚 30%，合计 100%
+    assert sum(b["share"] for b in budgets.values()) == pytest.approx(1.0)
+    assert budgets["breakfast"]["share"] == 0.30
+    assert budgets["lunch"]["share"] == 0.40
+    assert budgets["dinner"]["share"] == 0.30
+
+    # 每餐热量中心值之和等于全天目标；每餐给出 ±10% 区间
+    cal_sum = sum(b["calories"] for b in budgets.values())
+    assert cal_sum == targets["target_calories"]
+    lunch = budgets["lunch"]
+    # 午餐为占比最大一餐，承担取整余数，故与 40% 中心值相差不超过 1
+    expected_lunch = round(targets["target_calories"] * 0.40)
+    assert abs(lunch["calories"] - expected_lunch) <= 1
+    assert lunch["calorie_low"] == round(lunch["calories"] * 0.90)
+    assert lunch["calorie_high"] == round(lunch["calories"] * 1.10)
+
+    # 每餐蛋白质目标与最低线（90%）
+    assert budgets["lunch"]["protein_g"] == round(targets["target_protein_g"] * 0.40, 1)
+    assert budgets["lunch"]["protein_min"] == round(
+        budgets["lunch"]["protein_g"] * 0.90, 1
+    )
+
+
+def test_scale_course_shares_amount_g_down_to_calorie_target():
+    # 该餐当前 1000g * 2.6 = 2600 千卡，目标 1800 千卡 → 系数约 0.69（不触发钳制）
+    items = [{"food": "FOOD", "amount": "1000g", "amount_g": 1000}]
+    food_by_name = {"FOOD": {"per_100g": {"calories": 260, "protein": 13.0}}}
+
+    scaled, factor = scale_course_to_targets(items, 1800, food_by_name)
+    assert factor == pytest.approx(1800 / 2600, abs=0.01)
+    assert scaled[0]["amount_g"] == round(1000 * factor)
+    # 纯克重文案随新克重同步，原对象不被原地修改
+    assert scaled[0]["amount"] == f"{scaled[0]['amount_g']}g"
+    assert items[0]["amount_g"] == 1000
+    assert items[0]["amount"] == "1000g"
+    # 缩放后该餐热量落在目标附近
+    assert abs(260 * scaled[0]["amount_g"] / 100 - 1800) <= 15
+
+
+def test_scale_course_clamps_extreme_factor():
+    # 当前热量极小、需要极大系数时，钳制到上限，避免产出不现实的分量
+    items = [{"food": "FOOD", "amount_g": 10}]
+    food_by_name = {"FOOD": {"per_100g": {"calories": 50}}}
+    _, factor = scale_course_to_targets(items, 3000, food_by_name)
+    assert factor == 2.5  # 被钳到上限
+
+
+def test_scale_course_noop_when_no_computable_calories():
+    items = [{"food": "X", "amount_g": 100}]
+    scaled, factor = scale_course_to_targets(items, 800, {"X": {"per_100g": {}}})
+    assert factor == 1.0
+    assert scaled[0]["amount_g"] == 100
+
+
+def test_repair_course_adds_high_protein_anchor_and_keeps_calories_in_range():
+    # 早餐只有香蕉（高碳水、极低蛋白）：热量在区间但蛋白严重不足
+    budget = {"calories": 866, "calorie_low": 779, "calorie_high": 953,
+              "protein_g": 38.9, "protein_min": 35.0}
+    items = [{"food": "BANANA", "amount_g": 400}]  # 356 千卡 / 4.4g 蛋白
+    food_by_name = {
+        "BANANA": {"per_100g": {"calories": 89, "protein": 1.1}},
+        "CHICKEN": {"per_100g": {"calories": 165, "protein": 20.4}},
+    }
+
+    repaired = repair_course(items, budget, food_by_name)
+    t = compute_meal_totals({"breakfast": repaired}, food_by_name)
+    assert t["protein_g"] >= budget["protein_min"]            # 蛋白达标
+    assert budget["calorie_low"] <= t["calories"] <= budget["calorie_high"]  # 热量仍在区间
+    assert any(i["food"] == "CHICKEN" for i in repaired)      # 锚点来自候选池，非编造
+
+
+def test_repair_course_passes_through_meal_that_already_meets_targets():
+    budget = {"calories": 1800, "calorie_low": 1620, "calorie_high": 1980,
+              "protein_g": 90, "protein_min": 81}
+    # 该餐已达标：不应强行塞入蛋白锚点
+    items = [{"food": "FOOD", "amount_g": 692}]  # 约1800千卡 / 90g蛋白
+    food_by_name = {"FOOD": {"per_100g": {"calories": 260, "protein": 13.0}}}
+    repaired = repair_course(items, budget, food_by_name)
+    assert [i["food"] for i in repaired] == ["FOOD"]
 
 
 def test_compute_meal_totals_sums_by_amount_g():

@@ -187,6 +187,9 @@ fitness-nutrition-agent/
 ## 6. 常用命令
 
 ```bash
+# 一键多轮菜单（双击 start.bat 亦可）：启停/状态/日志，dev|prod、本机|局域网
+powershell -ExecutionPolicy Bypass -File scripts/manage.ps1
+
 # 安装依赖
 uv sync
 

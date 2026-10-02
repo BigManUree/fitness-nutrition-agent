@@ -7,7 +7,11 @@ import json
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agent.llm import get_llm
-from app.agent.nutrition_planning import can_compute_targets, compute_targets
+from app.agent.nutrition_planning import (
+    can_compute_targets,
+    compute_meal_budgets,
+    compute_targets,
+)
 from app.agent.prompts import GENERATE_PLAN_SYSTEM, GENERATE_PLAN_USER
 from app.agent.state import AgentState
 from app.utils.performance_logger import USAGE_KEY, extract_llm_usage, log_performance
@@ -32,6 +36,26 @@ def _format_exercises(items: list[dict]) -> str:
             f"{it.get('category')}"
         )
     return "\n".join(lines) or "（无候选动作）"
+
+
+def _format_meal_budgets(profile: dict) -> str:
+    """把每餐热量/蛋白预算格式化为可执行的硬约束表。"""
+    if not can_compute_targets(profile):
+        return "（画像信息不完整，无法分摊每餐目标）"
+    budgets = compute_meal_budgets(profile)
+    labels = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}
+    lines = []
+    for course in ("breakfast", "lunch", "dinner"):
+        b = budgets[course]
+        lines.append(
+            f"- {labels[course]}：热量 {b['calorie_low']}–{b['calorie_high']} 千卡"
+            f"（目标 {b['calories']}），蛋白质 ≥{b['protein_min']}g（目标 {b['protein_g']}g）"
+        )
+    lines.append(
+        "请先确定每餐各食物的 amount_g，使每一餐的合计热量都落在上述区间、"
+        "蛋白质都不低于最低线；三餐各自达标后，全天合计自然达标。"
+    )
+    return "\n".join(lines)
 
 
 def _format_foods(items: list[dict]) -> str:
@@ -61,6 +85,10 @@ async def generate_plan(state: AgentState) -> AgentState:
         retry_feedback = (
             "\n\n【上一次生成未通过校验，存在以下问题，本次必须全部修正】\n"
             f"{violations_text}\n"
+            "请通过减小/增大各食物的 amount_g 来定量修正（不要换用列表外的食物），"
+            "并严格对照下面的【每餐预算】，让每一餐都落在自己的热量区间、"
+            "达到各自的蛋白质最低线，而不只是调整三餐合计。\n"
+            f"{_format_meal_budgets(profile)}\n"
             "只能使用下面候选列表中的动作和食物，禁止使用列表外的任何名称。"
         )
 
@@ -75,6 +103,7 @@ async def generate_plan(state: AgentState) -> AgentState:
             content=GENERATE_PLAN_USER.format(
                 profile=json.dumps(profile, ensure_ascii=False),
                 targets=targets_json,
+                meal_budgets=_format_meal_budgets(profile),
                 exercises=_format_exercises(state.get("exercise_candidates", [])),
                 foods=_format_foods(state.get("nutrition_candidates", [])),
             )

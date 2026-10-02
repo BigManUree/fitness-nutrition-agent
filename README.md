@@ -57,8 +57,17 @@ make embed-up
 
 ### 4. 启动应用
 
+**最简单：双击根目录 `start.bat`**，进入多轮交互菜单（启动/停止/重启/状态/日志/设置），
+可选**开发/生产模式**与**仅本机/开放局域网（0.0.0.0，自动显示局域网地址并放行防火墙）**；
+各服务在独立窗口运行，日志完整可见。
+
+需要**真正的公网分享**（发给非同网段的人）：菜单选 **[7] 公网隧道（Cloudflare）**，
+按当前模式自动转发（dev→5173，prod→8000），启动后回显随机的 `https://xxx.trycloudflare.com`
+地址；需先安装 cloudflared（`winget install --id Cloudflare.cloudflared`），并在 Clash 下
+开启 TUN/放行其 DoH，否则边缘可能注册失败。
+
 ```bash
-# 前端（React，推荐）
+# 也可单独手动启动
 make frontend-dev    # Vite dev server：http://localhost:5173（/api 代理到 8000）
 make frontend-build  # 生产构建到 frontend/dist，由 FastAPI 静态托管（同源单服务）
 make api             # FastAPI：http://localhost:8000（/docs 查看接口；已构建时 / 即前端页面）

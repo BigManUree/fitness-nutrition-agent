@@ -67,7 +67,15 @@
 
 ## 临时公网访问（Cloudflare Quick Tunnel）
 
-适合临时把本地 Streamlit 发给朋友试用，无需注册账号、无需公网 IP。
+适合临时把本地应用发给朋友试用，无需注册账号、无需公网 IP。
+
+**推荐：用一键菜单。** 双击 `start.bat`（或运行 `scripts/manage.ps1`），先按当前模式
+（dev/prod）启动服务，再选择 **[7] 公网隧道（Cloudflare）→ [1] 启动隧道**。
+脚本自动按模式选择转发目标（dev → `http://localhost:5173`，prod → `http://localhost:8000`），
+PID 记录在 `data/run/cloudflared.pid`，日志在 `logs/cloudflared_quick.log`；
+子菜单 [3] 可随时查看公网地址，[2] 停止隧道。
+
+也可手动操作：
 
 1. 安装 cloudflared：
 
@@ -75,26 +83,26 @@
    winget install --id Cloudflare.cloudflared
    ```
 
-2. 确认本机服务已启动（<http://localhost:8501> 可访问），然后启动隧道：
+2. 确认本机服务已启动，然后启动隧道（目标按模式选择 5173 / 8000）：
 
    ```bash
-   cloudflared tunnel --url http://localhost:8501
+   cloudflared tunnel --url http://localhost:8000
    ```
 
 3. 终端会输出一个 `https://<随机词>.trycloudflare.com` 地址，把它发给朋友即可。
 
-4. 用完按 `Ctrl+C` 关闭隧道，公网地址立即失效。
+4. 用完停止隧道，公网地址立即失效。
 
-> 也可直接双击 `scripts/run_quick_tunnel.bat`：以独立进程启动（不随终端/会话关闭）
-> 并把日志写到 `logs/cloudflared.log`。
->
 > **Clash 代理下隧道反复掉线（错误 1033 / QUIC timeout）**：默认 QUIC 走 UDP，
 > 在 Clash 等代理下容易出现 `failed to accept QUIC stream: no recent network activity`
-> 并无限重连。此时强制走 TCP 的 HTTP/2，必要时锁定 IPv4：
+> 并无限重连。此时强制走 TCP 的 HTTP/2，必要时锁定 IPv4（菜单已默认带上这两个参数）：
 >
 > ```bash
-> cloudflared tunnel --url http://localhost:8501 --protocol http2 --edge-ip-version 4
+> cloudflared tunnel --url http://localhost:8000 --protocol http2 --edge-ip-version 4
 > ```
+>
+> **若边缘注册报 `argotunnel.com: no such host`**：是 cloudflared 内置 DoH 被代理拦截，
+> 在 Clash 中开启 TUN 模式（或放行 cloudflared 的 DoH/边缘 IP）即可。
 >
 > 先 `taskkill /F /IM cloudflared.exe` 清掉旧实例再启动，避免多个隧道并存。
 

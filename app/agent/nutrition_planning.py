@@ -13,6 +13,7 @@ TDEE = BMR × 活动系数（由每周训练天数映射）。
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # 每周训练天数 -> 活动系数（取上限阈值，如 3 天以内按轻度活动 1.375）
@@ -95,6 +96,183 @@ def compute_targets(profile: dict[str, Any]) -> dict[str, Any]:
         "target_protein_g": round(target_protein_g, 1),
         "calorie_delta": GOAL_CALORIE_DELTA.get(goal, 0),
     }
+
+
+# 全天目标在三餐间的分摊比例（早 30% / 午 40% / 晚 30%）。
+# 午餐作为训练日主餐占比略高。各餐独立满足区间即可保证总量落在 ±10%。
+MEAL_SHARE: dict[str, float] = {
+    "breakfast": 0.30,
+    "lunch": 0.40,
+    "dinner": 0.30,
+}
+
+
+def compute_meal_budgets(profile: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """把全天热量/蛋白质目标确定性分摊到早/午/晚三餐。
+
+    返回每餐的热量中心值与 ±10% 允许区间、蛋白质目标与 90% 最低线，
+    供 generate_plan 写入 prompt，要求模型按 amount_g 让每一餐都落在区间内
+    （而不只是三餐合计），避免系统性把总量配高/配低。
+    """
+    targets = compute_targets(profile)
+    total_cal = targets["target_calories"]
+    total_protein = targets["target_protein_g"]
+
+    # 先按比例四舍五入，再把取整余数补给占比最大的一餐，使各餐中心值之和
+    # 严格等于全天目标（不出现 1 千卡漂移）。
+    meal_cal = {course: round(total_cal * share) for course, share in MEAL_SHARE.items()}
+    remainder = total_cal - sum(meal_cal.values())
+    largest = max(MEAL_SHARE, key=MEAL_SHARE.get)
+    meal_cal[largest] += remainder
+
+    budgets: dict[str, dict[str, Any]] = {}
+    for course, share in MEAL_SHARE.items():
+        cal = meal_cal[course]
+        meal_protein = round(total_protein * share, 1)
+        budgets[course] = {
+            "share": share,
+            "calories": cal,
+            "calorie_low": round(cal * (1 - CALORIE_TOLERANCE)),
+            "calorie_high": round(cal * (1 + CALORIE_TOLERANCE)),
+            "protein_g": meal_protein,
+            "protein_min": round(meal_protein * PROTEIN_MIN_RATIO, 1),
+        }
+    return budgets
+
+
+# 缩放系数允许范围：防止把分量调到不现实的值（过小/过大）。
+SCALE_MIN_FACTOR = 0.4
+SCALE_MAX_FACTOR = 2.5
+
+
+def scale_course_to_targets(
+    course_items: list[dict[str, Any]],
+    target_calories: int,
+    food_by_name: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], float]:
+    """按热量目标等比缩放一餐内各食物的 amount_g（不修改原对象）。
+
+    模型负责选择食物，精确定量交由本函数：系数 = 目标热量 / 该餐当前热量，
+    再钳制到 [SCALE_MIN_FACTOR, SCALE_MAX_FACTOR]，逐食物乘算并取整。
+    无可核算热量（缺数据/缺 amount_g）时不调整，返回系数 1.0。
+    """
+    current_calories = 0.0
+    for item in course_items:
+        amount_g = item.get("amount_g")
+        food = food_by_name.get(item.get("food", "")) or {}
+        calories = (food.get("per_100g") or {}).get("calories")
+        if amount_g and calories is not None:
+            current_calories += calories * amount_g / 100
+
+    if current_calories <= 0:
+        return list(course_items), 1.0
+
+    factor = target_calories / current_calories
+    factor = min(max(factor, SCALE_MIN_FACTOR), SCALE_MAX_FACTOR)
+
+    scaled = []
+    for item in course_items:
+        new_g = max(1, round((item.get("amount_g") or 0) * factor))
+        updated = {**item, "amount_g": new_g}
+        # 原文案是纯克重（如 "50g"）时同步，避免与新 amount_g 矛盾；
+        # "2个""1根"等非克重描述保留不动
+        old_amount = item.get("amount")
+        if isinstance(old_amount, str) and re.fullmatch(r"\s*[\d.]+\s*g", old_amount):
+            updated["amount"] = f"{new_g}g"
+        scaled.append(updated)
+    return scaled, factor
+
+
+# 可作为"蛋白锚点"的食物每 100g 蛋白质下限（挑真正高蛋白、而非中等的）。
+ANCHOR_MIN_PROTEIN_PER_100G = 12.0
+_REPAIR_ITERATIONS = 4
+
+
+def sum_items(items: list[dict], food_by_name: dict[str, dict]) -> dict[str, float]:
+    """对"一份食物列表"直接求和（不依赖餐次键名），返回热量/蛋白质。"""
+    calories = 0.0
+    protein = 0.0
+    for item in items:
+        amount_g = item.get("amount_g")
+        per_100g = (food_by_name.get(item.get("food", "")) or {}).get("per_100g") or {}
+        if not amount_g:
+            continue
+        if per_100g.get("calories") is not None:
+            calories += per_100g["calories"] * amount_g / 100
+        if per_100g.get("protein") is not None:
+            protein += per_100g["protein"] * amount_g / 100
+    return {"calories": round(calories), "protein_g": round(protein, 1)}
+
+
+def _totals_for_course(items: list[dict], food_by_name: dict) -> dict[str, Any]:
+    return sum_items(items, food_by_name)
+
+
+def repair_course(
+    items: list[dict[str, Any]],
+    budget: dict[str, Any],
+    food_by_name: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """把一餐修复到热量区间内且蛋白质达标。
+
+    1) 先按热量目标等比缩放（见 scale_course_to_targets）；
+    2) 若蛋白仍不足，从候选池中选"蛋白/热量"效率最高的食物作为锚点
+       （锚点是候选池中的真实食物，非编造），迭代确定锚点克重，并把
+       其余食物的热量回配到（目标 − 锚点热量），直到蛋白与热量同时满足。
+    无可用锚点时返回仅热量定标的结果，交由 validate_output 判定。
+    """
+    scaled, _ = scale_course_to_targets(items, budget["calories"], food_by_name)
+    if _totals_for_course(scaled, food_by_name)["protein_g"] >= budget["protein_min"]:
+        return scaled
+
+    used = {i.get("food") for i in scaled}
+    anchors = [
+        (name, f["per_100g"])
+        for name, f in food_by_name.items()
+        if name not in used
+        and (f.get("per_100g") or {}).get("calories") is not None
+        and (f.get("per_100g") or {}).get("protein", 0) >= ANCHOR_MIN_PROTEIN_PER_100G
+    ]
+    if not anchors:
+        return scaled
+    anchors.sort(key=lambda nf: nf[1]["protein"] / nf[1]["calories"], reverse=True)
+    anchor_name, anchor_p100 = anchors[0]
+
+    anchor_g = 1
+    current = scaled
+    for _ in range(_REPAIR_ITERATIONS):
+        anchor_cal = anchor_p100["calories"] * anchor_g / 100
+        remaining = round(budget["calories"] - anchor_cal)
+
+        base = [i for i in scaled if i.get("food") != anchor_name]
+        if remaining <= 0:
+            base_scaled = [
+                {**i, "amount_g": max(1, round((i.get("amount_g") or 0) * 0.15))}
+                for i in base
+            ]
+        else:
+            base_scaled, _ = scale_course_to_targets(base, remaining, food_by_name)
+
+        anchor_item = {
+            "food": anchor_name,
+            "amount": f"{anchor_g}g",
+            "amount_g": anchor_g,
+            "note": "为补足该餐蛋白质而添加",
+        }
+        current = base_scaled + [anchor_item]
+        totals = _totals_for_course(current, food_by_name)
+        if (
+            totals["protein_g"] >= budget["protein_min"]
+            and budget["calorie_low"] <= totals["calories"] <= budget["calorie_high"]
+        ):
+            return current
+
+        # 蛋白还差多少（含 10% 缓冲）→ 反推锚点克重，进入下一轮
+        gap = budget["protein_min"] - totals["protein_g"]
+        if gap > 0:
+            anchor_g = max(anchor_g, round(anchor_g + gap * 100 / anchor_p100["protein"] * 1.1))
+
+    return current
 
 
 def compute_meal_totals(
