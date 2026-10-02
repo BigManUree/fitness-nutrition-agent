@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Spin, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,11 +10,17 @@ import type { Profile } from '../types/profile';
 export default function Profile() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // 告警独立成 state：开始新保存时立刻清空，避免上一次失败文案挂在表单上
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const { data, isLoading, isError, error } = useQuery({ queryKey: ['profile'], queryFn: getProfile });
 
   const save = useMutation({
     mutationFn: (p: Profile) => saveProfile(p),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profile'] }),
+    onMutate: () => setSaveWarning(null),
+    onSuccess: (resp) => {
+      setSaveWarning(resp.indexing_warning ?? null);
+      return queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
   });
 
   const missing = isError && error instanceof ApiError && error.status === 404;
@@ -32,7 +39,7 @@ export default function Profile() {
         onSaved={() => navigate('/plan')}
         onSave={(p) => save.mutateAsync(p)}
         saving={save.isPending}
-        saveWarning={save.data?.indexing_warning ?? null}
+        saveWarning={saveWarning}
       />
     </div>
   );

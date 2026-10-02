@@ -29,9 +29,9 @@ export default function PlanTable({ plan }: { plan: Plan }) {
             第 {day.day ?? i + 1} 天 · {day.focus ?? ''}
           </Typography.Title>
           <Table
-            rowKey={(r: Exercise) => r.name ?? ''}
+            rowKey="key"
             columns={columns}
-            dataSource={day.exercises ?? []}
+            dataSource={(day.exercises ?? []).map((ex, j) => ({ ...ex, key: `d${i}-ex${j}` }))}
             pagination={false}
             size="small"
           />

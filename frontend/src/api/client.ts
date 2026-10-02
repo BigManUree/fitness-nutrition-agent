@@ -12,7 +12,17 @@ export class ApiError extends Error {
   detail: unknown;
 
   constructor(status: number, detail: unknown) {
-    super(typeof detail === 'string' ? detail : `请求失败（${status}）`);
+    // FastAPI 错误体固定为 {"detail": ...}；字符串 detail 直接展示，
+    // 校验错误数组等结构化 detail 退化为通用文案
+    const message =
+      typeof detail === 'object' &&
+      detail !== null &&
+      typeof (detail as { detail?: unknown }).detail === 'string'
+        ? ((detail as { detail: string }).detail)
+        : typeof detail === 'string'
+          ? detail
+          : `请求失败（${status}）`;
+    super(message);
     this.status = status;
     this.detail = detail;
   }

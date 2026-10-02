@@ -21,7 +21,13 @@ export function useChatStream(plan: Plan) {
       setPending(null);
 
       let acc = '';
+      let failed = false;
       setMessages((m) => [...m, { role: 'assistant', content: '' }]);
+
+      const markError = (msg: string) => {
+        failed = true;
+        setError(msg);
+      };
 
       try {
         await streamChat(planRef.current, history, text, {
@@ -37,11 +43,18 @@ export function useChatStream(plan: Plan) {
             const latest = [...done.tool_results].reverse().find((r) => r.alternatives?.length);
             if (latest) setPending(latest);
           },
-          onError: (msg) => setError(msg),
+          onError: markError,
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        markError(err instanceof Error ? err.message : String(err));
       } finally {
+        if (failed && acc === '') {
+          // 一个 token 都没收到：撤掉占位空气泡，只保留用户消息
+          setMessages((m) => {
+            const last = m[m.length - 1];
+            return last?.role === 'assistant' && last.content === '' ? m.slice(0, -1) : m;
+          });
+        }
         setStreaming(false);
       }
     },
