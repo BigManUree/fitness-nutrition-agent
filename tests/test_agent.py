@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from app.agent.graph import _route_after_profile, _route_after_validate, build_graph
 from app.agent.nodes.collect_profile import collect_profile
+from app.agent.nodes.search_exercises import muscle_groups_for
 from app.agent.nodes.validate_output import validate_output
 
 VALID_PROFILE = {
@@ -25,15 +26,16 @@ def make_plan(exercise: str = "Dumbbell Press", food: str = "EGG") -> dict:
         "day": 1,
         "focus": "push",
         "exercises": [
-            {"name": exercise, "sets": 3, "reps": "8-12", "rest": "60秒"}
+            {"name": exercise, "sets": 3, "reps": "8-12", "rest": "60秒",
+             "weight": "每只手8-12kg"}
         ],
     }
     return {
         "weekly_plan": [day, day, day],
         "daily_meals": {
-            "breakfast": [{"food": food, "amount": "2个"}],
-            "lunch": [{"food": food, "amount": "2个"}],
-            "dinner": [{"food": food, "amount": "2个"}],
+            "breakfast": [{"food": food, "amount": "2个", "amount_g": 100}],
+            "lunch": [{"food": food, "amount": "2个", "amount_g": 100}],
+            "dinner": [{"food": food, "amount": "2个", "amount_g": 100}],
         },
         "rationale": "测试说明",
     }
@@ -149,6 +151,8 @@ def test_checkpointer_persists_and_isolates_threads(monkeypatch):
         "validate_output",
         lambda state: {"validation": {"valid": True}},
     )
+    monkeypatch.setattr(graph_module, "enrich_plan", lambda state: {})
+    monkeypatch.setattr(graph_module, "translate_plan", lambda state: {})
 
     checkpointer = MemorySaver()
     graph = graph_module.build_graph(checkpointer)
@@ -165,3 +169,23 @@ def test_checkpointer_persists_and_isolates_threads(monkeypatch):
 
     # 历史中可查到本次 run 的 checkpoint
     assert list(graph.get_state_history(cfg_a))
+
+
+# ============================================================
+# 动作检索按训练天数收敛（#5）
+# ============================================================
+
+
+def test_muscle_groups_for_full_body_split():
+    groups = muscle_groups_for(2)
+    assert groups == ["chest", "back", "shoulders", "quads", "hamstrings", "abs"]
+    # 孤立肌（二头/三头/臀）靠复合动作顺带训练，不再单独检索
+    assert "biceps" not in groups
+    assert "triceps" not in groups
+    assert "glutes" not in groups
+
+
+def test_muscle_groups_for_three_or_more_days_keeps_all():
+    assert len(muscle_groups_for(3)) == 9
+    assert len(muscle_groups_for(5)) == 9
+    assert muscle_groups_for(3) == muscle_groups_for(7)

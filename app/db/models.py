@@ -28,6 +28,31 @@ class Profile(BaseModel):
 
 
 # ============================================================
+# 多账号：账号表 + 会话表（DDL 常量，由 sqlite_client 拼入 SCHEMA_SQL）
+# ============================================================
+
+# 账号：密码只存 pbkdf2 哈希与盐，不存明文
+USERS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 会话：登录 token -> 用户名；登出即删行（可吊销）
+SESSIONS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (username) REFERENCES users(username)
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
+"""
+
+# ============================================================
 # 观测与复盘表（DDL 常量，由 sqlite_client 拼入 SCHEMA_SQL）
 # ============================================================
 
@@ -50,6 +75,27 @@ CREATE INDEX IF NOT EXISTS idx_performance_log_session
     ON performance_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_performance_log_created
     ON performance_log(created_at);
+"""
+
+# 翻译缓存：英文原文 -> 中文译文。translate_plan 节点先查缓存，
+# 同一动作要领/食物名跨用户、跨计划复用时不重复调用模型。
+TRANSLATION_CACHE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS translation_cache (
+    source_text TEXT PRIMARY KEY,
+    translated TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# 营养检索缓存：查询词 -> 规范化后的候选食物列表。营养数据（USDA +
+# OpenNutrition）近乎静态，缓存全局共享（key 只含查询词与条数，不含 user_id），
+# 重复生成计划时直接命中、跳过 MCP 串行调用。
+NUTRITION_CACHE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS nutrition_cache (
+    cache_key TEXT PRIMARY KEY,
+    items_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 # Bad Case 台账：与 docs/bad_cases.md 的字段对应；case_id 唯一，

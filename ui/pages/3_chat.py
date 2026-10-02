@@ -84,7 +84,7 @@ if prompt := st.chat_input("说说你想怎么调整，如：把卧推换成哑�
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    from app.agent.chat_adjust import resolve_with_tools
+    from app.agent.chat_adjust import stream_with_tools
     from app.agent.llm import get_llm
     from app.agent.safety import pre_check_message
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -96,18 +96,22 @@ if prompt := st.chat_input("说说你想怎么调整，如：把卧推换成哑�
         messages.append(cls(content=msg["content"]))
 
     with st.chat_message("assistant"):
-        with st.spinner("思考中…"):
-            # 代码层安全守卫：医疗症状/极端节食/编造动作命中即固定话术，不调模型
-            guard_reply = pre_check_message(prompt)
-            if guard_reply is not None:
-                answer, tool_results = guard_reply, []
-            else:
-                try:
-                    llm = get_llm(json_mode=False, temperature=0.4)
-                    answer, tool_results = resolve_with_tools(llm, messages, profile)
-                except Exception as exc:
-                    answer, tool_results = f"调用模型失败：{exc}", []
-        st.markdown(answer)
+        # 代码层安全守卫：医疗症状/极端节食/编造动作命中即固定话术，不调模型
+        guard_reply = pre_check_message(prompt)
+        if guard_reply is not None:
+            answer, tool_results = guard_reply, []
+            st.markdown(answer)
+        else:
+            try:
+                llm = get_llm(json_mode=False, temperature=0.4)
+                tool_results: list = []
+                # 流式输出最终回答：边生成边显示（工具循环在生成器内部执行）
+                answer = st.write_stream(
+                    stream_with_tools(llm, messages, profile, tool_results=tool_results)
+                )
+            except Exception as exc:
+                answer, tool_results = f"调用模型失败：{exc}", []
+                st.markdown(answer)
 
     st.session_state.chat_history.append({"role": "assistant", "content": answer})
 

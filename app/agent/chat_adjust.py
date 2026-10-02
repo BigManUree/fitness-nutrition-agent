@@ -10,10 +10,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Iterator
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from app.tools import substitute_exercise
 from app.tools.schemas import SUBSTITUTE_EXERCISE_INPUT_SCHEMA
@@ -41,6 +42,26 @@ def _shared_loop() -> asyncio.AbstractEventLoop:
         asyncio.set_event_loop(loop)
         _shared_loop._loop = loop  # type: ignore[attr-defined]
     return loop
+
+
+CHAT_SYSTEM_TEMPLATE = """你是健身营养 Agent 的对话助手，帮助用户理解和微调"已生成的计划"。
+
+规则：
+1. 普通问答只能围绕下方计划内容；不要编造计划之外的新动作或新食物。
+2. 当用户要求"替换/换掉某个动作"时，必须调用 substitute_exercise 工具，
+   并根据工具返回的真实候选回答；工具返回为空时如实转述，不要自己编候选。
+3. 不做医疗诊断，不推荐极端节食或危险动作。
+4. 如果用户描述胸痛、头晕、严重关节疼痛、心悸等症状，回复：
+   "我没办法判断你的身体情况，不能给出是否可以继续锻炼的建议。该症状属于需要重视的症状，建议你暂停训练，尽快咨询医生，由专业医师评估后再决定是否运动。"
+5. 用简洁中文回答；列出候选动作时保留动作原名（英文）。
+
+当前计划：
+{plan_json}"""
+
+
+def build_chat_system_prompt(plan: dict[str, Any]) -> str:
+    """把当前计划 JSON 内嵌进对话系统提示（plan 随客户端请求带入）。"""
+    return CHAT_SYSTEM_TEMPLATE.format(plan_json=json.dumps(plan, ensure_ascii=False))
 
 
 def default_tool_runner(**kwargs: Any) -> dict[str, Any]:
@@ -86,6 +107,66 @@ def resolve_with_tools(
         response = llm_with_tools.invoke(messages)
 
     return response.content, tool_results
+
+
+def stream_with_tools(
+    llm: Any,
+    messages: list[Any],
+    profile: dict[str, Any],
+    *,
+    tool_runner: ToolRunner | None = None,
+    tool_results: list[dict[str, Any]] | None = None,
+) -> Iterator[str]:
+    """流式执行一轮"可能含工具调用"的对话（生成器产出文本增量）。
+
+    与 resolve_with_tools 的区别：最终回答逐 token yield（供 Streamlit 边生成
+    边显示）。子代调用循环在生成器内部执行，tool_results（如有）在生成器被
+    消费期间就地填充，调用方可在 write_stream 结束后读取。
+
+    Args:
+        tool_results: 可选的外部列表，用于把本轮的 substitute_exercise 返回
+            回传给调用方（供"应用到计划"）。
+
+    Yields:
+        模型回答的文本增量（工具调用轮次通常无正文，故不见增量）。
+    """
+    tool_runner = tool_runner or default_tool_runner
+    llm_with_tools = llm.bind_tools([SUBSTITUTE_TOOL_DEFINITION])
+    results = tool_results if tool_results is not None else []
+
+    while True:
+        # 流式生成一轮，并用 + 合并 AIMessageChunk 得到含 tool_calls 的完整消息
+        full: AIMessageChunk | None = None
+        for chunk in llm_with_tools.stream(messages):
+            full = chunk if full is None else full + chunk
+            text = _chunk_text(chunk)
+            if text:
+                yield text
+
+        if full is None or not full.tool_calls:
+            return
+
+        # 本轮为工具调用：回填工具结果，进入下一轮
+        messages.append(full)
+        for call in full.tool_calls:
+            tool_output = _run_substitute(call, profile, tool_runner)
+            results.append(tool_output)
+            messages.append(
+                ToolMessage(
+                    content=_serialize_tool_output(tool_output),
+                    tool_call_id=call["id"],
+                )
+            )
+
+
+def _chunk_text(chunk: Any) -> str:
+    """从 AIMessageChunk 提取正文增量；兼容 str 与多模态内容块列表。"""
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    return ""
 
 
 def _run_substitute(

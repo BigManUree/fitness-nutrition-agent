@@ -11,7 +11,7 @@
 **一句话简介**：根据用户身体条件、训练目标和可用器械，生成可执行的每周健身计划与配套一日三餐示例。
 **项目类型**：Agent + RAG 结合（需调用 MCP 工具、SQLite、Chroma）。
 **MVP 范围**：只生成一周训练计划 + 一日三餐示例 + 基础动作替换。
-**交付形态**：Streamlit 本地页面，多页面模式。
+**交付形态**：React + TypeScript + Vite 前端 SPA（`frontend/`，FastAPI 同源托管）；Streamlit 旧版（`ui/`）暂保留。
 **成本约束**：每月 ≤ 500 元（豆包 API + 本地运行，无服务器成本）。
 
 ---
@@ -29,7 +29,7 @@
 | 嵌入模型 | Qwen3-Embedding-8B（Ollama 本地服务，`dengcao/Qwen3-Embedding-8B:Q5_K_M`） |
 | 数据库 | SQLite（`./data/app.db`） |
 | 后端 | FastAPI + Uvicorn |
-| 前端 | Streamlit（多页面模式，`pages/` 目录） |
+| 前端 | React 18 + TypeScript + Vite + Ant Design 5（`frontend/`，替代 Streamlit；`ui/` 旧版暂保留） |
 | 测试 | pytest |
 | 代码规范 | ruff |
 
@@ -101,6 +101,17 @@ fitness-nutrition-agent/
 │       ├── profile_form.py
 │       ├── plan_table.py
 │       └── meal_table.py
+│
+├── frontend/                   # React + TS + Vite 前端（替代 ui/）
+│   ├── index.html
+│   ├── vite.config.ts
+│   ├── src/
+│   │   ├── api/               # fetch 客户端 + REST/SSE 端点
+│   │   ├── auth/              # AuthProvider / useAuth
+│   │   ├── pages/             # Login / Register / Profile / Plan / Chat
+│   │   ├── components/        # ProtectedRoute / ProfileForm / PlanTable / MealTable
+│   │   ├── hooks/             # useChatStream
+│   │   └── types/             # Profile / Plan 类型
 │
 ├── data/                       # 项目根目录下
 │   ├── chroma_db/
@@ -181,6 +192,10 @@ uv sync
 
 # 启动 Streamlit 前端
 make dev
+
+# 前端开发 / 构建（React + Vite，替代 Streamlit）
+make frontend-dev
+make frontend-build
 
 # 启动 FastAPI 后端
 make api

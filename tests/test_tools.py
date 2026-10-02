@@ -275,13 +275,15 @@ async def test_substitute_exercise_raises_after_mcp_failures(
 # search_nutrition
 # ============================================================
 
-async def test_search_nutrition_normalizes_raw(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_nutrition_normalizes_raw(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     async def fake_call(arguments: dict[str, Any]) -> list[dict[str, Any]]:
         return [NUTRITION_RAW_CHICKEN]
 
     monkeypatch.setattr("app.tools.nutrition_tools.nutrition_client.search_nutrition", fake_call)
 
-    result = await search_nutrition("chicken breast")
+    result = await search_nutrition("chicken breast", db_path=tmp_path / "cache.db")
 
     assert result["source"] == "mcp"
     item = result["items"][0]
@@ -294,13 +296,15 @@ async def test_search_nutrition_normalizes_raw(monkeypatch: pytest.MonkeyPatch) 
     assert item["per_100g"]["fiber"] is None
 
 
-async def test_search_nutrition_empty_returns_note(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_nutrition_empty_returns_note(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     async def fake_call(arguments: dict[str, Any]) -> list[dict[str, Any]]:
         return []
 
     monkeypatch.setattr("app.tools.nutrition_tools.nutrition_client.search_nutrition", fake_call)
 
-    result = await search_nutrition("xxxxx")
+    result = await search_nutrition("xxxxx", db_path=tmp_path / "cache.db")
 
     assert result["items"] == []
     assert "未找到" in result["note"]
@@ -311,7 +315,9 @@ async def test_search_nutrition_requires_query() -> None:
         await search_nutrition("")
 
 
-async def test_search_nutrition_retries_once(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_search_nutrition_retries_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     calls: list[int] = []
 
     async def flaky_call(arguments: dict[str, Any]) -> list[dict[str, Any]]:
@@ -322,7 +328,7 @@ async def test_search_nutrition_retries_once(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("app.tools.nutrition_tools.nutrition_client.search_nutrition", flaky_call)
 
-    result = await search_nutrition("chicken breast")
+    result = await search_nutrition("chicken breast", db_path=tmp_path / "cache.db")
 
     assert len(calls) == 2
     assert result["total"] == 1

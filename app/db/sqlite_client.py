@@ -21,13 +21,18 @@ from pathlib import Path
 from app.config import load_dotenv
 from app.db.models import (
     BAD_CASES_SCHEMA_SQL,
+    NUTRITION_CACHE_SCHEMA_SQL,
     PERFORMANCE_LOG_SCHEMA_SQL,
+    SESSIONS_SCHEMA_SQL,
+    TRANSLATION_CACHE_SCHEMA_SQL,
+    USERS_SCHEMA_SQL,
     Profile,
 )
 
 load_dotenv()
 
-SCHEMA_SQL = """
+SCHEMA_SQL = (
+    """
 CREATE TABLE IF NOT EXISTS user_profile (
     user_id TEXT PRIMARY KEY,
     profile_json TEXT NOT NULL,
@@ -41,7 +46,14 @@ CREATE TABLE IF NOT EXISTS generated_plans (
     plan_json TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-""" + PERFORMANCE_LOG_SCHEMA_SQL + BAD_CASES_SCHEMA_SQL
+"""
+    + USERS_SCHEMA_SQL
+    + SESSIONS_SCHEMA_SQL
+    + PERFORMANCE_LOG_SCHEMA_SQL
+    + TRANSLATION_CACHE_SCHEMA_SQL
+    + NUTRITION_CACHE_SCHEMA_SQL
+    + BAD_CASES_SCHEMA_SQL
+)
 
 
 def get_db_path() -> Path:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agent.chat_adjust import resolve_with_tools
-from langchain_core.messages import AIMessage
+from app.agent.chat_adjust import resolve_with_tools, stream_with_tools
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 PROFILE = {
     "sex": "male",
@@ -166,3 +166,91 @@ def test_resolve_multiple_tool_calls_in_sequence():
     assert answer == "两个动作都换好了。"
     assert len(results) == 2
     assert [c["original_exercise"] for c in calls] == ["A", "B"]
+
+
+# ============================================================
+# 流式输出（#6）：stream_with_tools
+# ============================================================
+
+
+class _StreamBoundLLM:
+    """模拟流式：按脚本依次 yield 一组 chunk。"""
+
+    def __init__(self, turns: list[list[AIMessageChunk]]):
+        self._turns = list(turns)
+        self.stream_calls = 0
+
+    def stream(self, messages: list[Any]):
+        self.stream_calls += 1
+        return iter(self._turns.pop(0))
+
+
+class _StreamLLM:
+    def __init__(self, turns: list[list[AIMessageChunk]]):
+        self._turns = turns
+        self.bound: _StreamBoundLLM | None = None
+
+    def bind_tools(self, tools: list[Any]) -> _StreamBoundLLM:
+        self.bound = _StreamBoundLLM(self._turns)
+        return self.bound
+
+
+def test_stream_without_tool_call_yields_text():
+    llm = _StreamLLM(
+        [
+            [
+                AIMessageChunk(content="你"),
+                AIMessageChunk(content="好"),
+                AIMessageChunk(content="！"),
+            ]
+        ]
+    )
+
+    pieces = list(stream_with_tools(llm, [], PROFILE))
+
+    assert "".join(pieces) == "你好！"
+    assert llm.bound is not None and llm.bound.stream_calls == 1
+
+
+def test_stream_runs_tool_then_streams_final():
+    captured: dict[str, Any] = {}
+
+    def fake_tool_runner(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return FAKE_ALTERNATIVES
+
+    tool_call_chunk = AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "name": "substitute_exercise",
+                "args": '{"original_exercise": "Barbell Bench Press", '
+                '"reason": "没有杠铃", "equipment_available": ["bodyweight"]}',
+                "id": "call-1",
+                "index": 0,
+                "type": "tool_call_chunk",
+            }
+        ],
+    )
+    llm = _StreamLLM(
+        [
+            [tool_call_chunk],
+            [
+                AIMessageChunk(content="可以换成"),
+                AIMessageChunk(content=" Dumbbell Bench Press。"),
+            ],
+        ]
+    )
+
+    tool_results: list = []
+    pieces = list(
+        stream_with_tools(
+            llm, [], PROFILE, tool_runner=fake_tool_runner, tool_results=tool_results
+        )
+    )
+
+    assert "".join(pieces) == "可以换成 Dumbbell Bench Press。"
+    assert tool_results == [FAKE_ALTERNATIVES]
+    # 器械被画像强制覆盖为 dumbbell（模型越权 bodyweight 被忽略）
+    assert captured["equipment_available"] == ["dumbbell"]
+    assert llm.bound is not None and llm.bound.stream_calls == 2

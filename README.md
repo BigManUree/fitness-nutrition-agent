@@ -17,7 +17,7 @@
 | 工具 | MCP（exerciseapi 动作库 + nutrition-mcp 营养数据） |
 | 向量 / 嵌入 | Chroma + Qwen3-Embedding-8B（Ollama 或 llama-server 旁路） |
 | 数据库 | SQLite |
-| 界面 / 后端 | Streamlit 多页面 + FastAPI |
+| 界面 / 后端 | React + TypeScript + Vite（Ant Design）+ FastAPI；Streamlit 旧版暂保留 |
 | 测试 / 规范 | pytest + ruff |
 
 ## 快速开始
@@ -58,9 +58,16 @@ make embed-up
 ### 4. 启动应用
 
 ```bash
-make dev          # Streamlit：http://localhost:8501
-make api          # FastAPI：http://localhost:8000（/docs 查看接口）
+# 前端（React，推荐）
+make frontend-dev    # Vite dev server：http://localhost:5173（/api 代理到 8000）
+make frontend-build  # 生产构建到 frontend/dist，由 FastAPI 静态托管（同源单服务）
+make api             # FastAPI：http://localhost:8000（/docs 查看接口；已构建时 / 即前端页面）
+
+make dev             # Streamlit 旧版（暂保留）：http://localhost:8501
 ```
+
+前端已迁移到 **React + TypeScript + Vite（Ant Design）**：`make frontend-dev` 本地开发、
+`make frontend-build` 构建产物由 FastAPI 托管（无需 CORS）；`make dev`（Streamlit）暂保留至切换稳定。
 
 使用流程：**用户画像**（表单填写并保存）→ **生成计划** → **对话调整**（如"把卧推换成哑铃能做的动作"，候选动作可一键写回计划）。
 
@@ -85,7 +92,8 @@ app/
   db/           Profile 模型、SQLite 客户端
   utils/        日志、JSON Schema 校验
   main.py       FastAPI 入口
-ui/             Streamlit 多页面（画像 / 计划 / 对话调整）
+ui/             Streamlit 旧版多页面（画像 / 计划 / 对话调整，暂保留）
+frontend/       React + TS + Vite 前端（替代 ui/）：api / auth / pages / components / hooks / types
 scripts/        MCP 桥接、嵌入服务、初始化与连通性脚本
 tests/          pytest 测试
 docs/           需求说明书与 Bad Case 记录

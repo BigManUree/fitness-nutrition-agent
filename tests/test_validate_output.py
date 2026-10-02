@@ -15,6 +15,7 @@ from app.agent.graph import _route_after_validate
 from app.agent.nodes import generate_plan as gp_module
 from app.agent.nodes.validate_output import (
     RETRY_EXHAUSTED_MESSAGE,
+    _nutrition_goal_check,
     validate_output,
 )
 
@@ -26,7 +27,8 @@ def _day(exercise: str) -> dict[str, Any]:
     return {
         "day": 1,
         "exercises": [
-            {"name": exercise, "sets": 3, "reps": "10", "rest": "60秒"}
+            {"name": exercise, "sets": 3, "reps": "10", "rest": "60秒",
+             "weight": "每只手8-12kg"}
         ],
     }
 
@@ -35,7 +37,7 @@ def _state(exercise_names: list[str], retries: int = 0) -> dict[str, Any]:
     plan = {
         "weekly_plan": [_day(n) for n in exercise_names],
         "daily_meals": {
-            course: [{"food": "EGG", "amount": "1个"}]
+            course: [{"food": "EGG", "amount": "1个", "amount_g": 50}]
             for course in ("breakfast", "lunch", "dinner")
         },
         "rationale": "说明",
@@ -184,3 +186,85 @@ async def test_first_generation_does_not_add_retry_feedback(monkeypatch):
 
     assert "上一次生成未通过校验" not in captured["messages"][-1].content
     assert result.get("retries", 0) == 0
+
+
+# ============================================================
+# 热量/蛋白质目标闭环（确定性核算）
+# ============================================================
+
+FULL_PROFILE = {
+    "sex": "male",
+    "age": 28,
+    "height_cm": 175.0,
+    "weight_kg": 72.0,
+    "goal": "muscle_gain",
+    "days_per_week": 3,
+    "equipment": ["dumbbell"],
+}
+
+# 每 100g：260 千卡、13g 蛋白。1000g 合计 2600 千卡 / 130g 蛋白，
+# 落在目标（约 2608 千卡 / 129.6g）的 ±10% 与 ≥90% 区间内。
+_FOOD = {"per_100g": {"calories": 260, "protein": 13.0}}
+
+
+def _meals(total_g: int, per_100g: dict = _FOOD) -> dict:
+    return {
+        "breakfast": [{"food": "FOOD", "amount_g": round(total_g * 0.4)}],
+        "lunch": [{"food": "FOOD", "amount_g": round(total_g * 0.3)}],
+        "dinner": [{"food": "FOOD", "amount_g": round(total_g * 0.3)}],
+    }, {"FOOD": per_100g}
+
+
+def test_nutrition_goal_check_passes_when_in_range():
+    meals, food_by_name = _meals(1000)
+    violations, warnings = _nutrition_goal_check(FULL_PROFILE, meals, food_by_name)
+    assert violations == []
+    assert warnings == []
+
+
+def test_nutrition_goal_check_flags_calorie_overrun():
+    meals, food_by_name = _meals(1500)  # 3900 千卡，远超上限
+    violations, _ = _nutrition_goal_check(FULL_PROFILE, meals, food_by_name)
+    assert any("总热量" in v for v in violations)
+
+
+def test_nutrition_goal_check_flags_protein_shortfall():
+    low_protein = {"per_100g": {"calories": 260, "protein": 1.0}}
+    meals, food_by_name = _meals(1000, low_protein)  # 10g 蛋白，远低于 90% 目标
+    violations, _ = _nutrition_goal_check(FULL_PROFILE, meals, food_by_name)
+    assert any("总蛋白质" in v for v in violations)
+
+
+def test_nutrition_goal_check_skips_when_profile_incomplete():
+    meals, food_by_name = _meals(1000)
+    assert _nutrition_goal_check(PROFILE, meals, food_by_name) == ([], [])
+
+
+def test_nutrition_goal_check_warns_on_estimated_volume():
+    """分量为体积估算（parsed_volume）时：热量仍达标，但附可信度打标（不违规）。"""
+    estimated_food = {"per_100g": {"calories": 260, "protein": 13.0},
+                      "weight_source": "parsed_volume"}
+    meals, food_by_name = _meals(1000, estimated_food)
+    violations, warnings = _nutrition_goal_check(FULL_PROFILE, meals, food_by_name)
+    assert violations == []  # 热量/蛋白仍在区间内，不触发回炉
+    assert any("体积估算" in w for w in warnings)
+
+
+def test_validate_output_fails_on_missing_amount_g():
+    plan = {
+        "weekly_plan": [_day("Dumbbell Press")],
+        "daily_meals": {
+            course: [{"food": "EGG", "amount": "1个"}]
+            for course in ("breakfast", "lunch", "dinner")
+        },
+        "rationale": "说明",
+    }
+    state = {
+        "profile": PROFILE,
+        "plan": plan,
+        "exercise_candidates": [{"name": "Dumbbell Press"}],
+        "nutrition_candidates": [{"name": "EGG", "per_100g": {"calories": 155}}],
+    }
+    result = validate_output(state)
+    violations = " ".join(result["validation"]["violations"])
+    assert "缺少克重 amount_g" in violations

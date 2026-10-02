@@ -29,10 +29,16 @@ class Settings:
     llm_model: str
     local_llm_base_url: str
     local_llm_model: str
+    api_key: str
 
     @property
     def use_cloud_llm(self) -> bool:
         return bool(self.llm_api_key) and self.llm_api_key != "your_api_key"
+
+    @property
+    def api_auth_enabled(self) -> bool:
+        """配置了真实内部密钥时才启用 X-API-Key 校验。"""
+        return bool(self.api_key) and self.api_key != "your_internal_api_key"
 
 
 def get_settings() -> Settings:
@@ -45,4 +51,6 @@ def get_settings() -> Settings:
         # 本地兜底聊天模型（Ollama OpenAI 兼容端点）
         local_llm_base_url=os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1"),
         local_llm_model=os.getenv("LOCAL_LLM_MODEL", "qwen3.5:2b"),
+        # 内部服务间调用的共享密钥（X-API-Key）
+        api_key=os.getenv("API_KEY", ""),
     )

@@ -15,6 +15,23 @@ MUSCLE_GROUPS = [
     "quads", "hamstrings", "glutes", "abs",
 ]
 
+# 全身分化（每周训练 ≤2 天）只需覆盖的主要复合肌群：
+# 孤立肌（二头/三头/臀）靠推/拉/蹲/硬拉等复合动作顺带训练，不再单独检索。
+FULL_BODY_GROUPS = [
+    "chest", "back", "shoulders", "quads", "hamstrings", "abs",
+]
+
+
+def muscle_groups_for(days_per_week: int) -> list[str]:
+    """按周训练天数决定检索肌群子集。
+
+    ≤2 天走全身分化，只查复合肌群（省 MCP 调用与 prompt token）；
+    ≥3 天（推拉腿 / 上下 / 更细分）需覆盖全部大肌群，维持全量检索。
+    """
+    if days_per_week <= 2:
+        return FULL_BODY_GROUPS
+    return MUSCLE_GROUPS
+
 # MCP 数据中自重动作的 equipment 取值
 BODYWEIGHT = "body only"
 
@@ -42,7 +59,9 @@ async def search_exercises_node(state: AgentState) -> AgentState:
                 return [{"__error__": f"{muscle}: {exc}"}]
             return result.get("items", [])
 
-    groups = await asyncio.gather(*(for_group(m) for m in MUSCLE_GROUPS))
+    groups = await asyncio.gather(
+        *(for_group(m) for m in muscle_groups_for(profile.get("days_per_week", 3)))
+    )
 
     candidates: dict[str, dict] = {}
     errors: list[str] = []

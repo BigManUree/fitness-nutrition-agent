@@ -61,6 +61,29 @@ _EXERCISE_ITEM_SCHEMA = {
         "difficulty": {"type": ["string", "null"], "enum": DIFFICULTIES + [None]},
         "force": {"type": ["string", "null"]},
         "mechanic": {"type": ["string", "null"]},
+        # 来自 MCP 的动作指导（确定性注入计划，不交给模型编写）
+        "form_tips": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+        "common_mistakes": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+        "safety": {"type": ["string", "null"], "maxLength": 300},
+        # 完整分步教学、动作简介、变化动作、别名、示范图（相对路径）、演示视频
+        "instructions": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+        "overview": {"type": ["string", "null"], "maxLength": 600},
+        "variations": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+        "keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 10},
+        "images": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+        "videos": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "aspect_ratio": {"type": ["string", "null"]},
+                    "duration_seconds": {"type": ["number", "null"]},
+                },
+                "required": ["url"],
+            },
+        },
     },
     "required": ["id", "name", "primary_muscles", "secondary_muscles"],
     "additionalProperties": False,
@@ -173,6 +196,15 @@ _FOOD_ITEM_SCHEMA = {
         "fiber": {"type": ["number", "null"], "minimum": 0},
         "sugar": {"type": ["number", "null"], "minimum": 0},
         "sodium": {"type": ["number", "null"], "minimum": 0},
+        # 数据可信度信号（来自 nutrition-mcp，供热量核算打标）：
+        #   weight_source   分量克重来源（column=库列 / parsed_grams / parsed_mass /
+        #                   parsed_volume=按水密度估算，脆度最高）
+        #   verified_fields 经人工核验的字段名
+        #   is_correction   是否为修正记录；superseded_by 指向其修正来源的 id
+        "weight_source": {"type": ["string", "null"]},
+        "verified_fields": {"type": ["array", "null"], "items": {"type": "string"}},
+        "is_correction": {"type": ["boolean", "null"]},
+        "superseded_by": {"type": ["string", "null"]},
         # 每 100g 的标准值，始终保留以便二次计算
         "per_100g": _MACROS_SCHEMA,
     },

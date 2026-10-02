@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import sys
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st  # noqa: E402
 from app.db.models import Profile  # noqa: E402
-from app.db.sqlite_client import load_latest_profile, save_profile  # noqa: E402
+from app.db.sqlite_client import load_profile, save_profile  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 from components.profile_form import profile_form  # noqa: E402
@@ -18,18 +17,18 @@ from components.profile_form import profile_form  # noqa: E402
 st.title("📋 用户画像")
 st.caption("信息会用于生成训练与饮食计划，请如实填写；信息不全时无法生成。")
 
-# 跨会话预填：会话里没有画像时，从 SQLite 恢复最近一份（只查一次）
+# 跨会话预填：会话里没有画像时，只从 SQLite 恢复“当前账号”的画像（只查一次）
+current_user = st.session_state.current_user
 if st.session_state.get("profile") is None and not st.session_state.get("db_loaded"):
     try:
-        latest = load_latest_profile()
+        saved_profile = load_profile(current_user)
     except Exception as exc:
-        st.warning(f"读取本地已存画像失败（{exc}），将使用空白表单。")
+        st.warning(f"读取已存画像失败（{exc}），将使用空白表单。")
     else:
-        if latest is not None:
-            saved_user_id, saved_profile = latest
-            st.session_state.user_id = saved_user_id
+        if saved_profile is not None:
+            st.session_state.user_id = current_user
             st.session_state.profile = saved_profile.model_dump()
-            st.info("已从本地数据库恢复上次画像，可直接修改后保存。")
+            st.info("已恢复你的画像，可直接修改后保存。")
     st.session_state.db_loaded = True
 
 raw = profile_form(initial=st.session_state.get("profile"))
@@ -48,7 +47,8 @@ if raw is not None:
             st.error(f"「{err['loc'][0]}」{err['msg']}")
     else:
         data = profile.model_dump()
-        user_id = st.session_state.get("user_id") or f"user-{uuid.uuid4().hex[:8]}"
+        # 以登录用户名作为主键：SQLite 画像/计划与 Chroma 向量都按账号隔离
+        user_id = current_user
         st.session_state.profile = data
         st.session_state.user_id = user_id
         # 画像变更后，旧计划失效
