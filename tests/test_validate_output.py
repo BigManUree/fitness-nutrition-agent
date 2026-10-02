@@ -209,8 +209,8 @@ _FOOD = {"per_100g": {"calories": 260, "protein": 13.0}}
 
 def _meals(total_g: int, per_100g: dict = _FOOD) -> dict:
     return {
-        "breakfast": [{"food": "FOOD", "amount_g": round(total_g * 0.4)}],
-        "lunch": [{"food": "FOOD", "amount_g": round(total_g * 0.3)}],
+        "breakfast": [{"food": "FOOD", "amount_g": round(total_g * 0.3)}],
+        "lunch": [{"food": "FOOD", "amount_g": round(total_g * 0.4)}],
         "dinner": [{"food": "FOOD", "amount_g": round(total_g * 0.3)}],
     }, {"FOOD": per_100g}
 
@@ -223,16 +223,32 @@ def test_nutrition_goal_check_passes_when_in_range():
 
 
 def test_nutrition_goal_check_flags_calorie_overrun():
-    meals, food_by_name = _meals(1500)  # 3900 千卡，远超上限
+    meals, food_by_name = _meals(1500)  # 三餐均为 260千卡/100g、分量过大
     violations, _ = _nutrition_goal_check(FULL_PROFILE, meals, food_by_name)
-    assert any("总热量" in v for v in violations)
+    # 逐餐报热量超标（三餐都超）
+    assert any("热量" in v for v in violations)
+    assert sum("热量" in v for v in violations) == 3
 
 
 def test_nutrition_goal_check_flags_protein_shortfall():
     low_protein = {"per_100g": {"calories": 260, "protein": 1.0}}
-    meals, food_by_name = _meals(1000, low_protein)  # 10g 蛋白，远低于 90% 目标
+    meals, food_by_name = _meals(1000, low_protein)  # 蛋白极低
     violations, _ = _nutrition_goal_check(FULL_PROFILE, meals, food_by_name)
-    assert any("总蛋白质" in v for v in violations)
+    assert any("蛋白质" in v for v in violations)
+
+
+def test_nutrition_goal_check_flags_which_single_meal_is_over():
+    # 早/晚正常（300g=780千卡，在每餐区间内），午餐 1000g=2600千卡，超出午餐上限
+    meals = {
+        "breakfast": [{"food": "FOOD", "amount_g": 300}],
+        "lunch": [{"food": "FOOD", "amount_g": 1000}],
+        "dinner": [{"food": "FOOD", "amount_g": 300}],
+    }
+    violations, _ = _nutrition_goal_check(FULL_PROFILE, meals, {"FOOD": _FOOD})
+    # 必须点名是「午餐」超标，而不是只给一个三餐合计
+    assert any("午餐" in v and "热量" in v for v in violations)
+    assert not any("早餐" in v for v in violations)
+    assert not any("晚餐" in v for v in violations)
 
 
 def test_nutrition_goal_check_skips_when_profile_incomplete():

@@ -10,18 +10,16 @@
 from __future__ import annotations
 
 from app.agent.nutrition_planning import (
-    CALORIE_TOLERANCE,
-    PROTEIN_MIN_RATIO,
     can_compute_targets,
+    compute_meal_budgets,
     compute_meal_totals,
-    compute_targets,
 )
 from app.agent.state import AgentState
 from app.utils.performance_logger import log_performance
 
 # 重试耗尽后给用户的降级提示（CLAUDE.md 4.4：宁可不给，不可错给）
 RETRY_EXHAUSTED_MESSAGE = (
-    "本次生成的计划未能通过校验（存在不在真实动作库中的内容），"
+    "本次生成的计划未能通过校验（动作/食物的真实性，或三餐热量、蛋白质不达标），"
     "已重新生成 1 次仍不符合要求，故不提供该计划以免误导。"
     "请稍后重试，或调整训练目标、可用器械等筛选条件后再生成。"
 )
@@ -39,38 +37,43 @@ def _nutrition_goal_check(
     if not can_compute_targets(profile):
         return [], []
 
-    targets = compute_targets(profile)
-    totals = compute_meal_totals(meals, food_by_name)
-
     # 无任何可核算热量（要么缺 amount_g、要么候选缺营养数据）——交给上面的
     # amount_g 缺失校验兜底，这里不再重复问责
-    if totals["calories"] <= 0:
+    totals_all = compute_meal_totals(meals, food_by_name)
+    if totals_all["calories"] <= 0:
         return [], []
 
     violations: list[str] = []
     warnings: list[str] = []
-    target_cal = targets["target_calories"]
-    low = (1 - CALORIE_TOLERANCE) * target_cal
-    high = (1 + CALORIE_TOLERANCE) * target_cal
-    if not (low <= totals["calories"] <= high):
-        violations.append(
-            f"三餐总热量 {totals['calories']} 千卡，目标 {target_cal} 千卡"
-            f"（允许 {round(low)}–{round(high)} 千卡），偏差超过 ±10%，请调整分量"
-        )
 
-    target_protein = targets["target_protein_g"]
-    protein_floor = PROTEIN_MIN_RATIO * target_protein
-    if totals["protein_g"] < protein_floor:
-        violations.append(
-            f"三餐总蛋白质 {totals['protein_g']}g，未达目标 {target_protein}g 的 90%"
-            f"（需 ≥{round(protein_floor, 1)}g），请增加高蛋白食物"
-        )
+    # 逐餐硬校验：用每一餐自己的热量区间与蛋白最低线判定，精确指出是哪一餐不达标，
+    # 回炉时模型才能定向调整该餐的 amount_g（各餐达标则全天合计必然达标）。
+    budgets = compute_meal_budgets(profile)
+    course_labels = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐"}
+    for course in ("breakfast", "lunch", "dinner"):
+        budget = budgets[course]
+        course_totals = compute_meal_totals({course: meals.get(course, [])}, food_by_name)
+        label = course_labels[course]
+
+        if not (budget["calorie_low"] <= course_totals["calories"] <= budget["calorie_high"]):
+            direction = "偏高" if course_totals["calories"] > budget["calorie_high"] else "偏低"
+            violations.append(
+                f"{label}热量 {course_totals['calories']} 千卡，{direction}；该餐目标 {budget['calories']} 千卡"
+                f"（允许 {budget['calorie_low']}–{budget['calorie_high']} 千卡），"
+                "不在区间内，请调整该餐分量"
+            )
+
+        if course_totals["protein_g"] < budget["protein_min"]:
+            violations.append(
+                f"{label}蛋白质 {course_totals['protein_g']}g，低于该餐最低线 "
+                f"{budget['protein_min']}g（目标 {budget['protein_g']}g），请为该餐增加高蛋白食物"
+            )
 
     # 分量估算打标：parsed_volume 条目的热量为近似值，达标结论需打折，
     # 但不作为硬性违规（数据仍可能大致正确，回炉无法消除估算本身）
-    if totals.get("estimated"):
+    if totals_all.get("estimated"):
         warnings.append(
-            f"有 {totals['estimated']} 项食物的分量为体积估算（按水密度推算），"
+            f"有 {totals_all['estimated']} 项食物的分量为体积估算（按水密度推算），"
             "实际热量可能偏离，汇总与达标判断仅供参考"
         )
 

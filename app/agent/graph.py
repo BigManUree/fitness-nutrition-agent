@@ -11,6 +11,7 @@ from __future__ import annotations
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from app.agent.nodes.calibrate_meals import calibrate_meals
 from app.agent.nodes.collect_profile import collect_profile
 from app.agent.nodes.enrich_plan import enrich_plan
 from app.agent.nodes.generate_plan import generate_plan
@@ -53,6 +54,7 @@ def build_graph(checkpointer: bool | MemorySaver | None = None):
     graph.add_node("search_exercises", search_exercises_node)
     graph.add_node("search_nutrition", search_nutrition_node)
     graph.add_node("generate_plan", generate_plan)
+    graph.add_node("calibrate_meals", calibrate_meals)
     graph.add_node("validate_output", validate_output)
     graph.add_node("enrich_plan", enrich_plan)
     graph.add_node("translate_plan", translate_plan)
@@ -65,7 +67,8 @@ def build_graph(checkpointer: bool | MemorySaver | None = None):
     )
     graph.add_edge("search_exercises", "search_nutrition")
     graph.add_edge("search_nutrition", "generate_plan")
-    graph.add_edge("generate_plan", "validate_output")
+    graph.add_edge("generate_plan", "calibrate_meals")
+    graph.add_edge("calibrate_meals", "validate_output")
     graph.add_conditional_edges(
         "validate_output",
         _route_after_validate,
