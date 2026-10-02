@@ -1,13 +1,17 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Spin, Tabs, Typography, message } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProfile } from '../api/profile';
 import { generatePlan } from '../api/plan';
 import { ApiError } from '../api/client';
-import PlanTable from '../components/PlanTable';
-import MealTable from '../components/MealTable';
 import type { Plan as PlanType } from '../types/plan';
+
+// 进入页面时尚无计划、表格不渲染（生成需 1–3 分钟）。两个表格都懒加载，
+// 把 antd Table 实现推迟到真正出现计划时，缩小 Plan 页进入时的初始体积。
+const PlanTable = lazy(() => import('../components/PlanTable'));
+const MealTable = lazy(() => import('../components/MealTable'));
+const tabFallback = <Spin style={{ display: 'block', margin: '40px auto' }} />;
 
 export default function Plan() {
   const navigate = useNavigate();
@@ -87,11 +91,21 @@ export default function Plan() {
                   <>
                     {plan.weight_guidance && <Alert type="info" message={plan.weight_guidance} style={{ marginBottom: 12 }} />}
                     {plan.progression_guide && <Alert type="info" message={plan.progression_guide} style={{ marginBottom: 12 }} />}
-                    <PlanTable plan={plan} />
+                    <Suspense fallback={tabFallback}>
+                      <PlanTable plan={plan} />
+                    </Suspense>
                   </>
                 ),
               },
-              { key: 'meals', label: '🍱 一日三餐', children: <MealTable plan={plan} /> },
+              {
+                key: 'meals',
+                label: '🍱 一日三餐',
+                children: (
+                  <Suspense fallback={tabFallback}>
+                    <MealTable plan={plan} />
+                  </Suspense>
+                ),
+              },
             ]}
           />
           <Typography.Title level={5} style={{ marginTop: 24 }}>💡 为什么这样安排</Typography.Title>
