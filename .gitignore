@@ -29,6 +29,9 @@ data/run/
 # MCP 桥接运行日志
 logs/
 
+# Playwright MCP 运行产物
+.playwright-mcp/
+
 # Streamlit
 .streamlit/secrets.toml
 
