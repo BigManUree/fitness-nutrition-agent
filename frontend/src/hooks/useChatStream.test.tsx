@@ -65,7 +65,8 @@ describe('useChatStream', () => {
       await result.current.send('你好');
     });
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0]).toEqual({ role: 'user', content: '你好' });
+    expect(result.current.messages[0]).toMatchObject({ role: 'user', content: '你好' });
+    expect(result.current.messages[0].id).toEqual(expect.any(String));
     expect(result.current.error).toBe('网络错误');
   });
 

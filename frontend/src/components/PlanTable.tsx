@@ -1,6 +1,7 @@
 import { Table, Typography } from 'antd';
 import type { Exercise, Plan } from '../types/plan';
 import ExerciseDetail from './ExerciseDetail';
+import { fontSize, palette } from '../theme/tokens';
 
 const { Text } = Typography;
 
@@ -24,7 +25,7 @@ function renderFormTips(_: unknown, row: Exercise) {
   const tips = row.form_tips_zh?.length ? row.form_tips_zh : row.form_tips;
   if (!tips?.length) return <span />;
   return (
-    <Text style={{ fontSize: 12, color: '#5A6478' }}>
+    <Text style={{ fontSize: fontSize.caption, color: palette.textSecondary }}>
       {tips.map((t) => `· ${t}`).join('\n')}
     </Text>
   );
@@ -67,21 +68,22 @@ function hasDetail(ex: Exercise): boolean {
 }
 
 export default function PlanTable({ plan }: { plan: Plan }) {
-  const days = plan.weekly_plan ?? [];
+  // 归一化 day 序号：LLM 偶发缺省 day 时按顺序补齐，保证渲染 key 稳定
+  const days = (plan.weekly_plan ?? []).map((day, i) => ({ ...day, day: day.day ?? i + 1 }));
   if (days.length === 0) {
     return <Typography.Text type="secondary">暂无训练计划</Typography.Text>;
   }
   return (
     <>
-      {days.map((day, i) => (
-        <div key={i} style={{ marginBottom: 24 }}>
+      {days.map((day) => (
+        <div key={`day-${day.day}`} style={{ marginBottom: 24 }}>
           <Typography.Title level={5} style={{ marginBottom: 8 }}>
-            第 {day.day ?? i + 1} 天 · {day.focus ?? ''}
+            第 {day.day} 天 · {day.focus ?? ''}
           </Typography.Title>
           <Table
             rowKey="key"
             columns={columns}
-            dataSource={(day.exercises ?? []).map((ex, j) => ({ ...ex, key: `d${i}-ex${j}` }))}
+            dataSource={(day.exercises ?? []).map((ex, j) => ({ ...ex, key: `d${day.day}-ex${j}` }))}
             pagination={false}
             size="small"
             scroll={{ x: 960 }}

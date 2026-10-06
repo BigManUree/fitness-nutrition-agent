@@ -1,11 +1,13 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { streamChat } from '../api/chat';
 import type { ChatDone, ChatMessage, ToolResult } from '../api/chat';
 import type { Plan } from '../types/plan';
 
 export function useChatStream(plan: Plan) {
   const planRef = useRef(plan);
-  planRef.current = plan;
+  useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -15,14 +17,14 @@ export function useChatStream(plan: Plan) {
   const send = useCallback(
     async (text: string) => {
       const history = [...messages];
-      setMessages((m) => [...m, { role: 'user', content: text }]);
+      setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', content: text }]);
       setStreaming(true);
       setError(null);
       setPending(null);
 
       let acc = '';
       let failed = false;
-      setMessages((m) => [...m, { role: 'assistant', content: '' }]);
+      setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: '' }]);
 
       const markError = (msg: string) => {
         failed = true;
@@ -35,7 +37,8 @@ export function useChatStream(plan: Plan) {
             acc += t;
             setMessages((m) => {
               const next = [...m];
-              next[next.length - 1] = { role: 'assistant', content: acc };
+              const last = next[next.length - 1];
+              next[next.length - 1] = { ...last, content: acc };
               return next;
             });
           },

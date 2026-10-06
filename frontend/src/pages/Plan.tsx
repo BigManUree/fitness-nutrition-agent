@@ -1,13 +1,14 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Spin, Tabs, Typography, message } from 'antd';
-import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Empty, Space, Spin, Tabs, Typography, message } from 'antd';
+import { CalendarOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getProfile } from '../api/profile';
 import { generatePlan } from '../api/plan';
 import { ApiError } from '../api/client';
 import type { Plan as PlanType } from '../types/plan';
 import PageContainer from '../components/PageContainer';
+import { LATEST_PLAN_KEY, useLatestPlan } from '../hooks/useLatestPlan';
 
 // 进入页面时尚无计划、表格不渲染（生成需 1–3 分钟）。两个表格都懒加载，
 // 把 antd Table 实现推迟到真正出现计划时，缩小 Plan 页进入时的初始体积。
@@ -42,38 +43,18 @@ function extractErrorDetail(err: unknown): { title: string; description?: string
   return { title: err.message || '生成失败，请确认 MCP 桥接与模型服务可用' };
 }
 
-export default function Plan() {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  // 初始化优先读缓存：从 Chat 应用替换后返回本页时，编辑随缓存保留（与 Chat.tsx 一致）
-  const [plan, setPlan] = useState<PlanType | null>(
-    () => queryClient.getQueryData<PlanType>(['plan']) ?? null,
-  );
-  const [validation, setValidation] = useState<{ valid: boolean; violations?: string[] } | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [generating, setGenerating] = useState(false);
+// ─── 拆分的子组件，降低主组件复杂度 ──────────────────────────
 
-  const { data, isLoading } = useQuery({ queryKey: ['profile'], queryFn: getProfile, retry: false });
-
-  const generate = async () => {
-    setGenerating(true);
-    setErrors([]);
-    try {
-      const r = await generatePlan(data?.profile ?? null);
-      setPlan(r.plan);
-      setValidation(r.validation);
-      setErrors(r.errors);
-      queryClient.setQueryData(['plan'], r.plan);
-      message.success('计划已生成');
-    } catch (err) {
-      const { title, description } = extractErrorDetail(err);
-      message.open({ type: 'error', content: title, duration: 5 });
-      if (description) setErrors([description]);
-    } finally {
-      setGenerating(false);
-    }
-  };
-
+/** 画像缺失时的占位提示。 */
+function ProfileGuard({
+  isLoading,
+  data,
+  navigate,
+}: {
+  isLoading: boolean;
+  data: { profile?: unknown } | undefined;
+  navigate: (path: string) => void;
+}) {
   if (isLoading) return <Spin style={{ display: 'block', margin: '80px auto' }} />;
   if (!data) {
     return (
@@ -88,6 +69,114 @@ export default function Plan() {
       </PageContainer>
     );
   }
+  return null;
+}
+
+/** 生成过程中的状态提示：错误、校验失败、翻译警告。 */
+function StatusAlerts({
+  plan,
+  errors,
+  generating,
+  validation,
+}: {
+  plan: PlanType | null;
+  errors: string[];
+  generating: boolean;
+  validation: { valid: boolean; violations?: string[] } | null;
+}) {
+  return (
+    <>
+      {errors.length > 0 && !generating && (
+        <Alert type="warning" message={`过程中有 ${errors.length} 条提示`} description={errors.join('；')} style={{ marginTop: 16 }} />
+      )}
+      {plan && validation && !validation.valid && (
+        <Alert type="warning" message={'计划未通过校验：' + (validation.violations ?? []).join('；')} style={{ marginTop: 16 }} />
+      )}
+      {plan?.translation_warning && <Alert type="warning" message={plan.translation_warning} style={{ marginTop: 16 }} />}
+    </>
+  );
+}
+
+/** 训练 / 餐单 Tabs 区域，含重量指导与渐进负荷提示。 */
+function PlanTabsSection({ plan }: { plan: PlanType }) {
+  return (
+    <Tabs
+      style={{ marginTop: 16 }}
+      items={[
+        {
+          key: 'weekly',
+          label: '一周训练计划',
+          children: (
+            <>
+              {plan.weight_guidance && <Alert type="info" message={plan.weight_guidance} style={{ marginBottom: 12 }} />}
+              {plan.progression_guide && <Alert type="info" message={plan.progression_guide} style={{ marginBottom: 12 }} />}
+              <Suspense fallback={tabFallback}>
+                <PlanTable plan={plan} />
+              </Suspense>
+            </>
+          ),
+        },
+        {
+          key: 'meals',
+          label: '一日三餐',
+          children: (
+            <Suspense fallback={tabFallback}>
+              <MealTable plan={plan} />
+            </Suspense>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
+// ─── 主组件 ──────────────────────────────────────────────────
+
+export default function Plan() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // 初始化优先读缓存：从 Chat 应用替换后返回本页时，编辑随缓存保留（与 Chat.tsx 一致）
+  const [plan, setPlan] = useState<PlanType | null>(
+    () => queryClient.getQueryData<PlanType>(['plan']) ?? null,
+  );
+  const [validation, setValidation] = useState<{ valid: boolean; violations?: string[] } | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [generating, setGenerating] = useState(false);
+
+  const { data, isLoading } = useQuery({ queryKey: ['profile'], queryFn: getProfile, retry: false });
+
+  // 整页刷新后内存缓存丢失：从服务器恢复最近一次持久化的计划
+  const { data: latestPlanData } = useLatestPlan();
+  useEffect(() => {
+    if (latestPlanData && !queryClient.getQueryData<PlanType>(['plan'])) {
+      setPlan(latestPlanData.plan);
+      queryClient.setQueryData(['plan'], latestPlanData.plan);
+    }
+  }, [latestPlanData, queryClient]);
+
+  const generate = async () => {
+    setGenerating(true);
+    setErrors([]);
+    try {
+      const r = await generatePlan(data?.profile ?? null);
+      setPlan(r.plan);
+      setValidation(r.validation);
+      setErrors(r.errors);
+      queryClient.setQueryData(['plan'], r.plan);
+      queryClient.setQueryData(LATEST_PLAN_KEY, { plan: r.plan, created_at: new Date().toISOString() });
+      message.success('计划已生成');
+    } catch (err) {
+      const { title, description } = extractErrorDetail(err);
+      message.open({ type: 'error', content: title, duration: 5 });
+      if (description) setErrors([description]);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (isLoading || !data) {
+    return <ProfileGuard isLoading={isLoading} data={data} navigate={navigate} />;
+  }
 
   return (
     <PageContainer
@@ -101,11 +190,26 @@ export default function Plan() {
         ) : null
       }
     >
-      <Card variant="borderless">
-        {!plan && (
-          <Button type="primary" size="large" icon={<ThunderboltOutlined />} loading={generating} onClick={generate}>
-            生成一周训练 + 一日三餐
-          </Button>
+      <Card>
+        {!plan && !generating && (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <Space direction="vertical" size={4}>
+                <Typography.Text strong style={{ fontSize: 15 }}>
+                  还没有训练与饮食方案
+                </Typography.Text>
+                <Typography.Text type="secondary">
+                  系统将检索真实动作与食物数据，按你的画像编排，约需 1–3 分钟
+                </Typography.Text>
+              </Space>
+            }
+            style={{ padding: '24px 0' }}
+          >
+            <Button type="primary" size="large" icon={<CalendarOutlined />} onClick={generate}>
+              生成一周训练 + 一日三餐
+            </Button>
+          </Empty>
         )}
 
         {generating && (
@@ -118,48 +222,16 @@ export default function Plan() {
           />
         )}
 
-        {errors.length > 0 && !generating && (
-          <Alert type="warning" message={`过程中有 ${errors.length} 条提示`} description={errors.join('；')} style={{ marginTop: 16 }} />
-        )}
-        {plan && validation && !validation.valid && (
-          <Alert type="warning" message={'计划未通过校验：' + (validation.violations ?? []).join('；')} style={{ marginTop: 16 }} />
-        )}
-        {plan?.translation_warning && <Alert type="warning" message={plan.translation_warning} style={{ marginTop: 16 }} />}
+        <StatusAlerts plan={plan} errors={errors} generating={generating} validation={validation} />
 
         {plan && (
           <>
-            <Tabs
-              style={{ marginTop: plan ? 16 : 0 }}
-              items={[
-                {
-                  key: 'weekly',
-                  label: '一周训练计划',
-                  children: (
-                    <>
-                      {plan.weight_guidance && <Alert type="info" message={plan.weight_guidance} style={{ marginBottom: 12 }} />}
-                      {plan.progression_guide && <Alert type="info" message={plan.progression_guide} style={{ marginBottom: 12 }} />}
-                      <Suspense fallback={tabFallback}>
-                        <PlanTable plan={plan} />
-                      </Suspense>
-                    </>
-                  ),
-                },
-                {
-                  key: 'meals',
-                  label: '一日三餐',
-                  children: (
-                    <Suspense fallback={tabFallback}>
-                      <MealTable plan={plan} />
-                    </Suspense>
-                  ),
-                },
-              ]}
-            />
+            <PlanTabsSection plan={plan} />
             <Typography.Title level={5} style={{ marginTop: 16 }}>
               为什么这样安排
             </Typography.Title>
-            <Typography.Paragraph style={{ color: '#5A6478' }}>{plan.rationale ?? ''}</Typography.Paragraph>
-            <Button type="primary" ghost style={{ marginTop: 8 }} onClick={() => navigate('/chat')}>
+            <Typography.Paragraph type="secondary">{plan.rationale ?? ''}</Typography.Paragraph>
+            <Button style={{ marginTop: 8 }} onClick={() => navigate('/chat')}>
               对话调整计划
             </Button>
           </>

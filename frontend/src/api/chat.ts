@@ -3,6 +3,7 @@ import { notifyUnauthorized } from './client';
 import type { Plan } from '../types/plan';
 
 export interface ChatMessage {
+  id: string;
   role: 'user' | 'assistant';
   content: string;
 }
