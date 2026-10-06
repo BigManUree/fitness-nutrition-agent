@@ -160,6 +160,40 @@ def test_repair_course_passes_through_meal_that_already_meets_targets():
     assert [i["food"] for i in repaired] == ["FOOD"]
 
 
+def test_repair_course_final_nudge_closes_sub_gram_protein_gap():
+    # 迭代耗尽后若仅差不到 1g 蛋白且热量仍在上限内，必须给锚点补差，
+    # 不得把 53.8/54.0 这种临界不合法餐次交出去。
+    budget = {"calories": 900, "calorie_low": 810, "calorie_high": 990,
+              "protein_g": 60, "protein_min": 54.0}
+    # 米饭 500g：650 千卡 / 13.5g 蛋白；鸡胸补差约 199g → 328 千卡 / 40.6g
+    items = [{"food": "RICE", "amount_g": 500}]
+    food_by_name = {
+        "RICE": {"per_100g": {"calories": 130, "protein": 2.7}},
+        "CHICKEN": {"per_100g": {"calories": 165, "protein": 20.4}},
+    }
+    repaired = repair_course(items, budget, food_by_name)
+    t = compute_meal_totals({"lunch": repaired}, food_by_name)
+    assert t["protein_g"] >= budget["protein_min"]
+    assert t["calories"] <= budget["calorie_high"]
+
+
+def test_repair_course_tolerates_null_protein_in_candidate():
+    # MCP/USDA 数据中 protein 可能为 None（字段存在但值为 null）：
+    # 该候选不应作为蛋白锚点，也不能让整个修复崩溃（曾导致 502）。
+    budget = {"calories": 866, "calorie_low": 779, "calorie_high": 953,
+              "protein_g": 38.9, "protein_min": 35.0}
+    items = [{"food": "BANANA", "amount_g": 400}]
+    food_by_name = {
+        "BANANA": {"per_100g": {"calories": 89, "protein": 1.1}},
+        "MYSTERY": {"per_100g": {"calories": 200, "protein": None}},
+        "CHICKEN": {"per_100g": {"calories": 165, "protein": 20.4}},
+    }
+
+    repaired = repair_course(items, budget, food_by_name)
+    assert all(i["food"] != "MYSTERY" for i in repaired)
+    assert any(i["food"] == "CHICKEN" for i in repaired)
+
+
 def test_compute_meal_totals_sums_by_amount_g():
     meals = {
         "breakfast": [{"food": "EGG", "amount_g": 100}],

@@ -9,16 +9,17 @@ from app.tools.exercise_tools import search_exercises
 from app.tools.profile_tools import GYM_EQUIPMENT
 from app.utils.performance_logger import log_performance
 
-# 一周分化需要覆盖的大肌群（使用 tools 层支持的别名）
+# 一周分化需要覆盖的大肌群（名字必须是 exerciseapi 的 displayGroup，
+# 工具层不做别名；注意 quadriceps/core，不是 quads/abs）
 MUSCLE_GROUPS = [
     "chest", "back", "shoulders", "biceps", "triceps",
-    "quads", "hamstrings", "glutes", "abs",
+    "quadriceps", "hamstrings", "glutes", "core",
 ]
 
 # 全身分化（每周训练 ≤2 天）只需覆盖的主要复合肌群：
 # 孤立肌（二头/三头/臀）靠推/拉/蹲/硬拉等复合动作顺带训练，不再单独检索。
 FULL_BODY_GROUPS = [
-    "chest", "back", "shoulders", "quads", "hamstrings", "abs",
+    "chest", "back", "shoulders", "quadriceps", "hamstrings", "core",
 ]
 
 

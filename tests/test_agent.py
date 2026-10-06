@@ -178,7 +178,7 @@ def test_checkpointer_persists_and_isolates_threads(monkeypatch):
 
 def test_muscle_groups_for_full_body_split():
     groups = muscle_groups_for(2)
-    assert groups == ["chest", "back", "shoulders", "quads", "hamstrings", "abs"]
+    assert groups == ["chest", "back", "shoulders", "quadriceps", "hamstrings", "core"]
     # 孤立肌（二头/三头/臀）靠复合动作顺带训练，不再单独检索
     assert "biceps" not in groups
     assert "triceps" not in groups
@@ -189,3 +189,15 @@ def test_muscle_groups_for_three_or_more_days_keeps_all():
     assert len(muscle_groups_for(3)) == 9
     assert len(muscle_groups_for(5)) == 9
     assert muscle_groups_for(3) == muscle_groups_for(7)
+
+
+def test_muscle_groups_use_valid_api_display_groups():
+    # exerciseapi 的 muscle 参数只认 displayGroup 名：曾误用 "quads"/"abs"
+    # （合法值为 "quadriceps"/"core"）导致检索全空、动作全被判编造（422）。
+    valid = {
+        "abductors", "adductors", "back", "biceps", "calves", "chest", "core",
+        "forearms", "glutes", "hamstrings", "hip flexors", "neck", "quadriceps",
+        "shoulders", "tibialis", "triceps",
+    }
+    for days in (1, 2, 3, 5, 7):
+        assert set(muscle_groups_for(days)) <= valid

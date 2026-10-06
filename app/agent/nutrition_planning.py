@@ -13,6 +13,7 @@ TDEE = BMR × 活动系数（由每周训练天数映射）。
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -231,7 +232,7 @@ def repair_course(
         for name, f in food_by_name.items()
         if name not in used
         and (f.get("per_100g") or {}).get("calories") is not None
-        and (f.get("per_100g") or {}).get("protein", 0) >= ANCHOR_MIN_PROTEIN_PER_100G
+        and ((f.get("per_100g") or {}).get("protein") or 0) >= ANCHOR_MIN_PROTEIN_PER_100G
     ]
     if not anchors:
         return scaled
@@ -271,6 +272,22 @@ def repair_course(
         gap = budget["protein_min"] - totals["protein_g"]
         if gap > 0:
             anchor_g = max(anchor_g, round(anchor_g + gap * 100 / anchor_p100["protein"] * 1.1))
+
+    # 迭代耗尽仍差一点（常见为取整导致的 <1g 缺口）：在热量上限内给锚点
+    # 补足最后的蛋白缺口，而不是把不合法的餐次交出去。
+    totals = _totals_for_course(current, food_by_name)
+    gap = budget["protein_min"] - totals["protein_g"]
+    if gap > 0 and anchor_p100["protein"] > 0:
+        need_g = math.ceil(gap * 100 / anchor_p100["protein"])
+        added_cal = anchor_p100["calories"] * need_g / 100
+        if totals["calories"] + added_cal <= budget["calorie_high"]:
+            bumped: list[dict[str, Any]] = []
+            for item in current:
+                if item.get("food") == anchor_name:
+                    g = (item.get("amount_g") or 0) + need_g
+                    item = {**item, "amount_g": g, "amount": f"{g}g"}
+                bumped.append(item)
+            current = bumped
 
     return current
 
