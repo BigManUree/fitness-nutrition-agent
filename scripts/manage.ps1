@@ -18,7 +18,9 @@ $script:Mode    = 'dev'     # dev | prod
 $script:Network = 'local'   # local | public
 
 # Cloudflare 快速隧道（公网）：PID 与日志
-$script:TunnelPidPath = Join-Path 'data' 'run' 'cloudflared.pid'
+# 注意：Join-Path 三参数重载仅 PowerShell 7+ 支持，start.bat 走的是
+# Windows PowerShell 5.1，必须嵌套拼接，否则该行报错、变量为 null
+$script:TunnelPidPath = Join-Path (Join-Path 'data' 'run') 'cloudflared.pid'
 $script:TunnelLog     = Join-Path 'logs' 'cloudflared_quick.log'
 
 $Ports = [ordered]@{
@@ -65,6 +67,19 @@ function Stop-Port([int]$port, [string]$label) {
 
 function Test-Command($name) {
     return [bool](Get-Command $name -ErrorAction SilentlyContinue)
+}
+
+# 子进程（uv/python/npx 等）可能在控制台输入缓冲区残留按键，
+# 若不清空，下一次 Read-Host 会先读到残留内容（典型表现：菜单
+# 第二次选择必须先按一下回车、再输入数字才生效）
+function Clear-StaleInput {
+    try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch {}
+}
+
+# 所有菜单/提示统一经此读取：先清空残留，再正常 Read-Host
+function Read-Choice($prompt) {
+    Clear-StaleInput
+    return Read-Host $prompt
 }
 
 # 独立窗口启动：日志完整可见，标题标明服务
@@ -229,7 +244,7 @@ function Show-Logs {
         Write-Host ("    [{0}] {1}  {2}" -f ($i + 1), $logs[$i].Name, $(if ($exists) { '' } else { '(暂无文件)' }))
     }
     Write-Host '    [0] 返回'
-    $c = Read-Host '选择日志（将在新窗口实时跟踪，Ctrl+C 退出跟踪）'
+    $c = Read-Choice '选择日志（将在新窗口实时跟踪，Ctrl+C 退出跟踪）'
     if ($c -eq '0' -or $c -eq '') { return }
     $idx = 0
     if ([int]::TryParse($c, [ref]$idx) -and $idx -ge 1 -and $idx -le $logs.Count) {
@@ -247,13 +262,13 @@ function Set-Config {
     Write-Title '运行模式'
     Write-Host '    [1] 开发模式 dev  —— Vite 热更新 (5173)，适合开发调试'
     Write-Host '    [2] 生产模式 prod —— 构建后由 FastAPI 同源托管 (8000)'
-    $c = Read-Host '选择'
+    $c = Read-Choice '选择'
     if ($c -eq '2') { $script:Mode = 'prod' } else { $script:Mode = 'dev' }
 
     Write-Title '网络访问'
     Write-Host '    [1] 仅本机 local —— 127.0.0.1'
     Write-Host '    [2] 开放访问 public —— 0.0.0.0，局域网可连（含防火墙放行）'
-    $c = Read-Host '选择'
+    $c = Read-Choice '选择'
     if ($c -eq '2') { $script:Network = 'public' } else { $script:Network = 'local' }
 
     Write-Host ("    已设置：模式={0}  网络={1}" -f $script:Mode, $script:Network) -ForegroundColor Green
@@ -410,7 +425,7 @@ function Show-TunnelSubmenu {
         Write-Host '    [3] 查看隧道状态 / 公网地址'
         Write-Host '    [0] 返回主菜单'
         Write-Host ''
-        $c = Read-Host '请输入选项后回车'
+        $c = Read-Choice '请输入选项后回车'
         if ($null -eq $c) { return }   # stdin 关闭（EOF）：返回而非死循环
         switch ($c) {
             '1' { Start-Tunnel }
@@ -424,6 +439,7 @@ function Show-TunnelSubmenu {
 
 function Read-Return {
     Write-Host ''
+    Clear-StaleInput
     Read-Host '回车返回主菜单' | Out-Null
 }
 
@@ -450,7 +466,7 @@ function Show-Menu {
 
 while ($true) {
     Show-Menu
-    $choice = Read-Host '请输入选项后回车'
+    $choice = Read-Choice '请输入选项后回车'
     if ($null -eq $choice) {
         Write-Host '输入已结束，退出菜单。' -ForegroundColor Cyan
         break
