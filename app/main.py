@@ -307,6 +307,25 @@ def get_latest_plan(user: str = Depends(current_user)) -> dict[str, Any]:
     return {"plan": plan, "created_at": created_at}
 
 
+class PersistPlanRequest(BaseModel):
+    """对话调整后把更新过的计划持久化。"""
+
+    plan: dict[str, Any] = Field(default_factory=dict)
+
+
+@app.put("/api/plans/latest")
+def persist_latest_plan(
+    request: PersistPlanRequest, user: str = Depends(current_user)
+) -> dict[str, Any]:
+    """保存对话调整后的计划，使其成为该账号的最近计划（表格/刷新后均可恢复）。"""
+    if not request.plan:
+        raise HTTPException(status_code=400, detail="plan 不能为空")
+    save_plan(user, request.plan, "weekly_plan")
+    record = load_latest_plan(user)
+    plan, created_at = record if record is not None else (request.plan, None)
+    return {"plan": plan, "created_at": created_at}
+
+
 @app.post("/api/plans/chat")
 def chat_stream(
     request: ChatRequest, user: str = Depends(current_user)

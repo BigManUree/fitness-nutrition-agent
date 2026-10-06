@@ -24,3 +24,10 @@ export interface LatestPlanResponse {
 export function getLatestPlan() {
   return apiFetch<LatestPlanResponse>('/api/plans/latest');
 }
+
+export function persistPlan(plan: Plan) {
+  return apiFetch<LatestPlanResponse>('/api/plans/latest', {
+    method: 'PUT',
+    body: JSON.stringify({ plan }),
+  });
+}

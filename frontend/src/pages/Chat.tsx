@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Grid, Input, Select, Spin, message } from 'antd';
-import { CheckCircleOutlined, SendOutlined } from '@ant-design/icons';
+import { SendOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChatStream } from '../hooks/useChatStream';
 import type { Plan } from '../types/plan';
 import PageContainer from '../components/PageContainer';
 import { palette, spacing } from '../theme/tokens';
-import { useLatestPlan } from '../hooks/useLatestPlan';
+import { LATEST_PLAN_KEY, useLatestPlan } from '../hooks/useLatestPlan';
+import { persistPlan } from '../api/plan';
+import { ApiError } from '../api/client';
 
 export default function Chat() {
   const qc = useQueryClient();
@@ -46,7 +48,7 @@ export default function Chat() {
     );
   }
 
-  const applySubstitution = (newName: string) => {
+  const applySubstitution = async (newName: string) => {
     if (!pending) return;
     const target = pending.original_exercise.trim().toLowerCase();
     const next: Plan = structuredClone(plan);
@@ -59,12 +61,22 @@ export default function Chat() {
         }
       }
     }
-    if (changed) {
-      setPlan(next);
-      qc.setQueryData(['plan'], next);
-      message.success(`已替换为 ${newName}`);
-    } else {
+    if (!changed) {
       message.warning('当前计划中未找到该原动作');
+      return;
+    }
+
+    // 先更新本地与计划表格（['plan'] 缓存），再持久化使刷新/重登后仍在
+    setPlan(next);
+    qc.setQueryData(['plan'], next);
+    try {
+      const saved = await persistPlan(next);
+      qc.setQueryData(LATEST_PLAN_KEY, { plan: next, created_at: saved.created_at });
+      message.success(`已替换为 ${newName}，并同步到计划表格`);
+    } catch (err) {
+      // 本地替换已生效：仅提示保存失败，不回滚表格中的修改
+      const detail = err instanceof ApiError ? err.message : String(err);
+      message.warning(`已更新当前计划，但保存到服务器失败：${detail}`);
     }
     setChosen(null);
   };
@@ -119,26 +131,19 @@ export default function Chat() {
           <div ref={bottomRef} />
         </div>
 
-        {/* 替代动作区：窄屏纵向排列，保证 Select 与按钮不溢出 */}
+        {/* 替代动作区：选中候选即直接更新计划并持久化，无需再点按钮 */}
         {pending?.alternatives?.length ? (
           <div style={{ padding: `${spacing.md} ${spacing.lg}`, borderTop: `1px solid ${palette.border}` }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
-              <Select
-                style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 320 }}
-                placeholder="选择替代动作"
-                value={chosen ?? undefined}
-                onChange={setChosen}
-                options={pending.alternatives.map((a) => ({ value: a.name, label: a.name }))}
-              />
-              <Button
-                type="primary"
-                icon={<CheckCircleOutlined />}
-                disabled={!chosen}
-                onClick={() => chosen && applySubstitution(chosen)}
-              >
-                应用到当前计划
-              </Button>
-            </div>
+            <Select
+              style={{ width: '100%', maxWidth: 420 }}
+              placeholder="选择替代动作后将直接更新计划表格"
+              value={chosen ?? undefined}
+              onChange={(v) => {
+                setChosen(v);
+                void applySubstitution(v);
+              }}
+              options={pending.alternatives.map((a) => ({ value: a.name, label: a.name }))}
+            />
           </div>
         ) : null}
 

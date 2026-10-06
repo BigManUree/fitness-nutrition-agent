@@ -36,6 +36,22 @@ def client(tmp_path, monkeypatch):
     return c
 
 
+def test_persist_latest_plan_then_get_reads_it_back(client):
+    updated = {"weekly_plan": [{"day": 1}], "daily_meals": {}, "rationale": "调整后"}
+    resp = client.put("/api/plans/latest", json={"plan": updated})
+    assert resp.status_code == 200
+    assert resp.json()["plan"]["weekly_plan"] == [{"day": 1}]
+
+    got = client.get("/api/plans/latest")
+    assert got.status_code == 200
+    assert got.json()["plan"]["weekly_plan"] == [{"day": 1}]
+
+
+def test_persist_latest_plan_rejects_empty_plan(client):
+    resp = client.put("/api/plans/latest", json={"plan": {}})
+    assert resp.status_code == 400
+
+
 def test_chat_without_profile_400(client):
     bare = TestClient(api_main.app)
     bare.post("/api/auth/register", json={"username": "eve", "password": "secret123"})
