@@ -9,6 +9,7 @@ import pytest
 from app.db.models import Profile
 from app.db.sqlite_client import (
     ensure_tables,
+    load_latest_plan,
     load_latest_profile,
     load_profile,
     log_performance,
@@ -120,6 +121,21 @@ def test_save_plan_appends_rows(tmp_path):
             "SELECT user_id, plan_type FROM generated_plans ORDER BY id"
         ).fetchall()
     assert rows == [("user-001", "weekly_plan"), ("user-001", "daily_meals")]
+
+
+def test_load_latest_plan_returns_newest_for_user_only(tmp_path):
+    db = tmp_path / "test.db"
+    ensure_tables(db)
+    save_plan("user-001", {"v": 1}, "weekly_plan", db)
+    save_plan("user-002", {"v": 9}, "weekly_plan", db)
+    save_plan("user-001", {"v": 2}, "weekly_plan", db)
+
+    record = load_latest_plan("user-001", db)
+    assert record is not None
+    plan, _created_at = record
+    assert plan == {"v": 2}  # 取该用户最近一条，不受其他用户影响
+
+    assert load_latest_plan("nobody", db) is None
 
 
 @pytest.mark.parametrize(

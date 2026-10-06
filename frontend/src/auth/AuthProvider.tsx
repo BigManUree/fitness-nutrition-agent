@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { me, logout as apiLogout } from '../api/auth';
 import { UNAUTHORIZED_EVENT } from '../api/client';
 import { AuthContext, AuthContextValue, useAuth } from './useAuth';
@@ -6,6 +7,7 @@ import { AuthContext, AuthContextValue, useAuth } from './useAuth';
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     me()
@@ -17,10 +19,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 任意请求收到 401（含其他标签页登出/服务端吊销）→ 清会话，
   // 已挂载的 ProtectedRoute 随即跳转 /login。
   useEffect(() => {
-    const onUnauthorized = () => setUser(null);
+    const onUnauthorized = () => {
+      setUser(null);
+      // 清理所有 React Query 缓存，防止新用户看到旧数据
+      queryClient.clear();
+    };
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     try {
@@ -29,7 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* 服务端失败也清本地会话 */
     }
     setUser(null);
-  }, []);
+    // 清理所有 React Query 缓存，防止新用户看到旧数据
+    queryClient.clear();
+  }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ user, loading, logout, setUser }),

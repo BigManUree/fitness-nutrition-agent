@@ -15,3 +15,12 @@ export function generatePlan(profile: Profile | null) {
     body: JSON.stringify({ profile, persist: true }),
   });
 }
+
+export interface LatestPlanResponse {
+  plan: Plan;
+  created_at: string;
+}
+
+export function getLatestPlan() {
+  return apiFetch<LatestPlanResponse>('/api/plans/latest');
+}

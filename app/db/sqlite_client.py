@@ -143,6 +143,28 @@ def save_plan(
         return int(cur.lastrowid)
 
 
+def load_latest_plan(
+    user_id: str, db_path: str | Path | None = None
+) -> tuple[dict, str] | None:
+    """读取该用户最近一次持久化的计划（刷新/重登后恢复用）。
+
+    返回 (plan_dict, created_at)；从未持久化过返回 None。
+    """
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT plan_json, created_at FROM generated_plans
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row["plan_json"]), row["created_at"]
+
+
 def log_performance(
     session_id: str | None,
     node_name: str,

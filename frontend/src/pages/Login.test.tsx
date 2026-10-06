@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '../auth/AuthProvider';
 import { ApiError } from '../api/client';
 import Login from './Login';
@@ -14,6 +15,19 @@ vi.mock('../api/auth', () => ({
 
 import { login } from '../api/auth';
 
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{ui}</AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe('Login', () => {
   beforeEach(() => {
     vi.mocked(login).mockReset();
@@ -23,13 +37,7 @@ describe('Login', () => {
     vi.mocked(login).mockRejectedValue(
       new ApiError(401, { detail: '用户名或密码错误' }),
     );
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <Login />
-        </AuthProvider>
-      </MemoryRouter>,
-    );
+    renderWithProviders(<Login />);
     await userEvent.type(screen.getByLabelText('用户名'), 'alice');
     await userEvent.type(screen.getByLabelText('密码'), 'wrongpass');
     await userEvent.click(screen.getByRole('button', { name: /登\s*录/ }));

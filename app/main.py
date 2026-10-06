@@ -35,7 +35,12 @@ from app.agent.chat_adjust import build_chat_system_prompt, stream_with_tools
 from app.agent.llm import get_llm
 from app.agent.safety import pre_check_message
 from app.db.models import Profile
-from app.db.sqlite_client import load_profile, save_plan, save_profile
+from app.db.sqlite_client import (
+    load_latest_plan,
+    load_profile,
+    save_plan,
+    save_profile,
+)
 from app.db.users import (
     UserExistsError,
     create_session,
@@ -290,6 +295,16 @@ async def generate_plan_endpoint(
         "validation": result.get("validation"),
         "errors": result.get("errors", []),
     }
+
+
+@app.get("/api/plans/latest")
+def get_latest_plan(user: str = Depends(current_user)) -> dict[str, Any]:
+    """恢复该用户最近一次持久化的计划；从未生成过则 404。"""
+    record = load_latest_plan(user)
+    if record is None:
+        raise HTTPException(status_code=404, detail="还没有已保存的计划")
+    plan, created_at = record
+    return {"plan": plan, "created_at": created_at}
 
 
 @app.post("/api/plans/chat")

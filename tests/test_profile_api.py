@@ -56,3 +56,24 @@ def test_indexing_failure_sets_warning(client, monkeypatch):
 def test_indexing_success_no_warning(client):
     resp = client.put("/api/profile", json=BASE)
     assert resp.json()["indexing_warning"] is None
+
+
+def test_latest_plan_endpoint_404_then_restore(client):
+    # 从未生成：明确 404
+    assert client.get("/api/plans/latest").status_code == 404
+
+    # 直接持久化两条，端点应返回最近一条（不经 Agent，避免依赖 MCP/LLM）
+    from app.db.sqlite_client import save_plan
+
+    save_plan(USERNAME, {"weekly_plan": [{"day": 1}]})
+    save_plan(USERNAME, {"weekly_plan": [{"day": 2}]})
+
+    resp = client.get("/api/plans/latest")
+    assert resp.status_code == 200
+    assert resp.json()["plan"]["weekly_plan"][0]["day"] == 2
+
+
+def test_latest_plan_requires_auth(client):
+    # 新客户端（无会话）应被拦截
+    anon = TestClient(api_main.app)
+    assert anon.get("/api/plans/latest").status_code == 401
