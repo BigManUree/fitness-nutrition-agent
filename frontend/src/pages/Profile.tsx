@@ -37,7 +37,7 @@ export default function Profile() {
 
   return (
     <PageContainer title="用户画像" subtitle="这些信息用于个性化训练与饮食编排，请如实填写" maxWidth={760}>
-      <Card variant="borderless">
+      <Card>
         {missing && <Alert type="info" message="尚未填写画像，请填写后保存" style={{ marginBottom: 16 }} />}
         <ProfileForm
           initial={data?.profile}

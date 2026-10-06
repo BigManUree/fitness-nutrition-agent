@@ -44,7 +44,7 @@ export default function ProfileForm({ initial, onSave, onSaved, saving, saveWarn
     setError(null);
     try {
       await onSave(values);
-      message.success('画像已保存 ✅');
+      message.success('画像已保存');
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
@@ -52,7 +52,7 @@ export default function ProfileForm({ initial, onSave, onSaved, saving, saveWarn
   };
 
   return (
-    <Form<Profile> layout="vertical" initialValues={initial} onFinish={finish} requiredMark>
+    <Form<Profile> layout="vertical" initialValues={initial} onFinish={finish} requiredMark={false}>
       <Form.Item name="sex" label="性别" rules={[{ required: true, message: '请选择性别' }]}>
         <Radio.Group options={[{ value: 'male', label: '男' }, { value: 'female', label: '女' }]} />
       </Form.Item>

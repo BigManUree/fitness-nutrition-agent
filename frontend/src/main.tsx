@@ -6,6 +6,7 @@ import { App as AntApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import { antTheme } from './theme/tokens';
+import './theme/tokens.css';
 
 const queryClient = new QueryClient();
 

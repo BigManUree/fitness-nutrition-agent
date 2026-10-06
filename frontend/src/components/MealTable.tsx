@@ -1,6 +1,7 @@
-import { Alert, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Card, Statistic, Table, Tag, Typography } from 'antd';
 import { Row, Col } from 'antd';
 import type { MealItem, Plan } from '../types/plan';
+import { palette, spacing } from '../theme/tokens';
 
 function renderFood(_food: string | undefined, r: MealItem) {
   const en = r.food;
@@ -14,7 +15,14 @@ function renderAmount(_v: string | undefined, r: MealItem) {
     <span>
       {r.amount ?? '—'}{' '}
       {r.estimated_portion && (
-        <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+        <Tag
+          style={{
+            marginInlineEnd: 0,
+            color: palette.warning,
+            background: palette.warningBg,
+            border: `1px solid ${palette.warning}22`,
+          }}
+        >
           估算
         </Tag>
       )}
@@ -76,12 +84,16 @@ export default function MealTable({ plan }: { plan: Plan }) {
 
       {/* 实际核算：确定性核算的三餐合计，与目标对照 */}
       {totals && (totals.calories || totals.protein_g) && (
-        <Row gutter={16}>
-          <Col span={12}>
-            <Statistic title="三餐实际热量" value={totals.calories ?? 0} suffix="kcal" />
+        <Row gutter={[16, 16]} style={{ marginTop: spacing.sm }}>
+          <Col xs={24} sm={12}>
+            <Card size="small">
+              <Statistic title="三餐实际热量" value={totals.calories ?? 0} suffix="kcal" />
+            </Card>
           </Col>
-          <Col span={12}>
-            <Statistic title="三餐实际蛋白质" value={totals.protein_g ?? 0} suffix="g" precision={1} />
+          <Col xs={24} sm={12}>
+            <Card size="small">
+              <Statistic title="三餐实际蛋白质" value={totals.protein_g ?? 0} suffix="g" precision={1} />
+            </Card>
           </Col>
         </Row>
       )}

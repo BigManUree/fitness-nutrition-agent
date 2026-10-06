@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { Space, Typography } from 'antd';
+import { fontSize, spacing } from '../theme/tokens';
 
 interface Props {
   title: ReactNode;
@@ -12,7 +13,7 @@ interface Props {
 
 /**
  * 统一页面骨架：页面标题 + 说明 + 右侧操作区 + 内容。
- * 让所有内页拥有一致的留白与层级。
+ * 让所有内页拥有一致的留白与层级；窄屏下操作区自动换到标题下方。
  */
 export default function PageContainer({ title, subtitle, extra, children, maxWidth = 1080 }: Props) {
   return (
@@ -22,21 +23,22 @@ export default function PageContainer({ title, subtitle, extra, children, maxWid
           display: 'flex',
           alignItems: 'flex-start',
           justifyContent: 'space-between',
-          gap: 16,
-          marginBottom: 20,
+          flexWrap: 'wrap',
+          gap: spacing.md,
+          marginBottom: spacing.lg,
         }}
       >
-        <div>
-          <Typography.Title level={4} style={{ margin: 0 }}>
+        <div style={{ minWidth: 0 }}>
+          <Typography.Title level={4} style={{ margin: 0, fontSize: fontSize.pageTitle }}>
             {title}
           </Typography.Title>
           {subtitle && (
-            <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
+            <Typography.Paragraph type="secondary" style={{ margin: `${spacing.sm}px 0 0`, fontSize: fontSize.secondary }}>
               {subtitle}
             </Typography.Paragraph>
           )}
         </div>
-        {extra && <Space>{extra}</Space>}
+        {extra && <Space style={{ marginLeft: 'auto' }}>{extra}</Space>}
       </div>
       {children}
     </div>

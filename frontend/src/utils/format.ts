@@ -1,4 +1,5 @@
 import type { Goal, Sex } from '../types/profile';
+import { palette } from '../theme/tokens';
 
 export const SEX_LABEL: Record<Sex, string> = {
   male: '男',
@@ -14,10 +15,10 @@ export const GOAL_LABEL: Record<Goal, string> = {
 
 /** BMI 分级（中国成人标准）。 */
 export function bmiCategory(bmi: number): { label: string; color: string } {
-  if (bmi < 18.5) return { label: '偏瘦', color: '#E8A13A' };
-  if (bmi < 24) return { label: '正常', color: '#18A058' };
-  if (bmi < 28) return { label: '超重', color: '#E8A13A' };
-  return { label: '肥胖', color: '#E04F4F' };
+  if (bmi < 18.5) return { label: '偏瘦', color: palette.warning };
+  if (bmi < 24) return { label: '正常', color: palette.success };
+  if (bmi < 28) return { label: '超重', color: palette.warning };
+  return { label: '肥胖', color: palette.error };
 }
 
 export function calcBmi(heightCm: number, weightKg: number): number {

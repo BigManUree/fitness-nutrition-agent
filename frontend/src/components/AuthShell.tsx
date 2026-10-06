@@ -12,8 +12,8 @@ export default function AuthShell({ children }: { children: ReactNode }) {
       <div
         style={{
           flex: '1 1 46%',
-          background: `linear-gradient(150deg, ${palette.siderBg} 0%, #24305E 60%, ${palette.primary} 130%)`,
-          color: '#fff',
+          background: `linear-gradient(150deg, ${palette.siderBg} 0%, ${palette.authGradientMid} 60%, ${palette.primary} 130%)`,
+          color: palette.white,
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'space-between',
@@ -40,7 +40,7 @@ export default function AuthShell({ children }: { children: ReactNode }) {
         </div>
 
         <div>
-          <Typography.Title style={{ color: '#fff', fontSize: 34, lineHeight: 1.3, marginBottom: 16 }}>
+          <Typography.Title style={{ color: palette.white, fontSize: 34, lineHeight: 1.3, marginBottom: 16 }}>
             数据驱动的
             <br />
             每周训练与三餐方案

@@ -1,0 +1,92 @@
+/*
+ * 设计令牌的 CSS 变量镜像 + 全局基础样式。
+ * 变量与 theme/tokens.ts 保持一致；原生 HTML 元素（video、滚动条等）
+ * 与自定义布局直接引用这些变量。
+ */
+:root {
+  /* 品牌色 */
+  --primary-color: #3a5bde;
+  --primary-hover: #5571e8;
+  --primary-active: #2d47b8;
+  --primary-bg: #eef2ff;
+
+  /* 语义色 */
+  --success-color: #18a058;
+  --success-bg: #e8f6ef;
+  --warning-color: #c77f1a;
+  --warning-bg: #fbf1e1;
+  --danger-color: #d54941;
+  --danger-bg: #fbeceb;
+
+  /* 文本 */
+  --text-primary: #1d2433;
+  --text-secondary: #5a6478;
+  --text-tertiary: #8a93a6;
+  --text-disabled: #b7becc;
+
+  /* 边框 / 背景 */
+  --border-color: #e4e8f0;
+  --divider-color: #ecedf1;
+  --bg-page: #f4f6fa;
+  --bg-card: #ffffff;
+  --bg-subtle: #f7f9fc;
+  --bg-hover: #f2f5fa;
+  --bg-active: #e9eef8;
+
+  /* 侧边导航 */
+  --sider-bg: #141a2e;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* 防止任何子元素造成整页横向溢出（表格自身仍可在容器内横向滚动） */
+html,
+body {
+  overflow-x: hidden;
+}
+
+/* 键盘可达性：统一、克制的 focus 环 */
+:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* 企业风格细滚动条（WebKit） */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(29, 36, 51, 0.18);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 36, 51, 0.3);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 尊重系统「减少动态效果」偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
