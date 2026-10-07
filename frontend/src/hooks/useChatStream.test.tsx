@@ -1,22 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useChatStream } from './useChatStream';
-import { streamChat } from '../api/chat';
+import { getChatHistory, streamChat } from '../api/chat';
 
 vi.mock('../api/chat', () => ({
   streamChat: vi.fn(),
+  getChatHistory: vi.fn(),
 }));
 
 const PLAN = { weekly_plan: [] };
 
-function makeClient() {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
-}
-
 function createWrapper() {
-  const queryClient = makeClient();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -30,19 +27,42 @@ function captureHandlers(impl: (h: any) => void) {
   });
 }
 
+async function renderAndWait(wrapper: any) {
+  const hook = renderHook(() => useChatStream(PLAN), { wrapper });
+  await waitFor(() => expect(hook.result.current.historyLoading).toBe(false));
+  return hook;
+}
+
 describe('useChatStream', () => {
   beforeEach(() => {
     vi.mocked(streamChat).mockReset();
+    vi.mocked(getChatHistory).mockReset();
+    vi.mocked(getChatHistory).mockResolvedValue({ messages: [], pending: null });
+  });
+
+  it('restores persisted server history on mount', async () => {
+    vi.mocked(getChatHistory).mockResolvedValue({
+      messages: [
+        { role: 'user', content: '把卧推换掉' },
+        { role: 'assistant', content: '建议换成 Dumbbell Press，你同意吗？' },
+      ],
+      pending: null,
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useChatStream(PLAN), { wrapper });
+    await waitFor(() => expect(result.current.historyLoading).toBe(false));
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[1].content).toContain('Dumbbell Press');
   });
 
   it('accumulates tokens into last assistant message', async () => {
     captureHandlers((h) => {
       h.onToken('你');
       h.onToken('好');
-      h.onDone({ tool_results: [] });
+      h.onDone({ tool_results: [], applied_plan: null });
     });
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useChatStream(PLAN), { wrapper });
+    const { result } = await renderAndWait(wrapper);
     await act(async () => {
       await result.current.send('你好');
     });
@@ -51,25 +71,19 @@ describe('useChatStream', () => {
     expect(result.current.streaming).toBe(false);
   });
 
-  it('sets pending from last tool result with alternatives', async () => {
+  it('invokes onAppliedPlan when the server returns the applied plan', async () => {
+    const updatedPlan = { weekly_plan: [{ day: 1, exercises: [{ name: 'Dumbbell Press' }] }] };
     captureHandlers((h) => {
-      h.onDone({
-        tool_results: [
-          {
-            original_exercise: '卧推',
-            alternatives: [{ name: 'Dumbbell Press' }],
-            total: 1,
-            source: 'mcp',
-          },
-        ],
-      });
+      h.onDone({ tool_results: [], applied_plan: updatedPlan });
     });
+    const onAppliedPlan = vi.fn();
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useChatStream(PLAN), { wrapper });
+    const { result } = renderHook(() => useChatStream(PLAN, onAppliedPlan), { wrapper });
+    await waitFor(() => expect(result.current.historyLoading).toBe(false));
     await act(async () => {
-      await result.current.send('换动作');
+      await result.current.send('同意，换吧');
     });
-    expect(result.current.pending?.original_exercise).toBe('卧推');
+    expect(onAppliedPlan).toHaveBeenCalledWith(updatedPlan);
   });
 
   it('removes the empty assistant bubble when the stream fails before any token', async () => {
@@ -77,13 +91,12 @@ describe('useChatStream', () => {
       h.onError('网络错误');
     });
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useChatStream(PLAN), { wrapper });
+    const { result } = await renderAndWait(wrapper);
     await act(async () => {
       await result.current.send('你好');
     });
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0]).toMatchObject({ role: 'user', content: '你好' });
-    expect(result.current.messages[0].id).toEqual(expect.any(String));
     expect(result.current.error).toBe('网络错误');
   });
 
@@ -93,7 +106,7 @@ describe('useChatStream', () => {
       h.onError('网络错误');
     });
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useChatStream(PLAN), { wrapper });
+    const { result } = await renderAndWait(wrapper);
     await act(async () => {
       await result.current.send('继续');
     });
@@ -101,35 +114,25 @@ describe('useChatStream', () => {
     expect(result.current.messages[1].content).toBe('先说一半');
   });
 
-  it('keeps history and pending after unmount-remount (switching pages)', async () => {
+  it('keeps history after unmount-remount (switching pages)', async () => {
     captureHandlers((h) => {
-      h.onDone({
-        tool_results: [
-          {
-            original_exercise: 'Bench Press',
-            alternatives: [{ name: 'Dumbbell Press' }],
-            total: 1,
-            source: 'mcp',
-          },
-        ],
-      });
+      h.onDone({ tool_results: [], applied_plan: null });
     });
     const { wrapper } = createWrapper();
-    const first = renderHook(() => useChatStream(PLAN), { wrapper });
+    const first = await renderAndWait(wrapper);
     await act(async () => {
       await first.result.current.send('把卧推换掉');
     });
     expect(first.result.current.messages).toHaveLength(2);
     first.unmount();
 
-    // 同一 QueryClient 下重新挂载：模拟切走再返回
+    // 同一 QueryClient 下重新挂载：模拟切走再返回（缓存命中，不再拉取历史）
     const second = renderHook(() => useChatStream(PLAN), { wrapper });
     expect(second.result.current.messages).toHaveLength(2);
     expect(second.result.current.messages[0]).toMatchObject({
       role: 'user',
       content: '把卧推换掉',
     });
-    expect(second.result.current.pending?.original_exercise).toBe('Bench Press');
     expect(second.result.current.streaming).toBe(false);
   });
 });

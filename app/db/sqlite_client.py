@@ -21,6 +21,8 @@ from pathlib import Path
 from app.config import load_dotenv
 from app.db.models import (
     BAD_CASES_SCHEMA_SQL,
+    CHAT_HISTORY_SCHEMA_SQL,
+    CHAT_PENDING_SCHEMA_SQL,
     NUTRITION_CACHE_SCHEMA_SQL,
     PERFORMANCE_LOG_SCHEMA_SQL,
     SESSIONS_SCHEMA_SQL,
@@ -49,6 +51,8 @@ CREATE TABLE IF NOT EXISTS generated_plans (
 """
     + USERS_SCHEMA_SQL
     + SESSIONS_SCHEMA_SQL
+    + CHAT_HISTORY_SCHEMA_SQL
+    + CHAT_PENDING_SCHEMA_SQL
     + PERFORMANCE_LOG_SCHEMA_SQL
     + TRANSLATION_CACHE_SCHEMA_SQL
     + NUTRITION_CACHE_SCHEMA_SQL
@@ -163,6 +167,75 @@ def load_latest_plan(
     if row is None:
         return None
     return json.loads(row["plan_json"]), row["created_at"]
+
+
+def append_chat_message(
+    user_id: str,
+    role: str,
+    content: str,
+    db_path: str | Path | None = None,
+) -> int:
+    """追加一条对话调整历史，返回行 id。"""
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            "INSERT INTO chat_history (user_id, role, content) VALUES (?, ?, ?)",
+            (user_id, role, content),
+        )
+        return int(cur.lastrowid)
+
+
+def load_chat_history(
+    user_id: str, limit: int = 200, db_path: str | Path | None = None
+) -> list[dict[str, str]]:
+    """读取该用户的对话调整历史（按时间正序）。"""
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT role, content FROM (
+                SELECT id, role, content FROM chat_history
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+            ) ORDER BY id ASC
+            """,
+            (user_id, limit),
+        ).fetchall()
+    return [{"role": r["role"], "content": r["content"]} for r in rows]
+
+
+def save_chat_pending(
+    user_id: str, proposal: dict, db_path: str | Path | None = None
+) -> None:
+    """按 user_id upsert 一条待确认的换动作建议。"""
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_pending (user_id, proposal_json)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                proposal_json = excluded.proposal_json,
+                created_at    = CURRENT_TIMESTAMP
+            """,
+            (user_id, json.dumps(proposal, ensure_ascii=False)),
+        )
+
+
+def load_chat_pending(
+    user_id: str, db_path: str | Path | None = None
+) -> dict | None:
+    """读取待确认的换动作建议；不存在返回 None。"""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT proposal_json FROM chat_pending WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    return None if row is None else json.loads(row["proposal_json"])
+
+
+def clear_chat_pending(user_id: str, db_path: str | Path | None = None) -> None:
+    """删除待确认建议（用户同意并应用后调用）。"""
+    with _connect(db_path) as conn:
+        conn.execute("DELETE FROM chat_pending WHERE user_id = ?", (user_id,))
 
 
 def log_performance(

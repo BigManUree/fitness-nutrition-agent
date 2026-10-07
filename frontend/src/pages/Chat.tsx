@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Grid, Input, Select, Spin, message } from 'antd';
+import { Alert, Button, Card, Grid, Input, Spin, message } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChatStream } from '../hooks/useChatStream';
@@ -8,16 +8,25 @@ import type { Plan } from '../types/plan';
 import PageContainer from '../components/PageContainer';
 import { palette, spacing } from '../theme/tokens';
 import { LATEST_PLAN_KEY, useLatestPlan } from '../hooks/useLatestPlan';
-import { persistPlan } from '../api/plan';
-import { ApiError } from '../api/client';
 
 export default function Chat() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [plan, setPlan] = useState<Plan | null>(() => qc.getQueryData<Plan>(['plan']) ?? null);
   const [input, setInput] = useState('');
-  const [chosen, setChosen] = useState<string | null>(null);
-  const { messages, streaming, pending, error, send } = useChatStream(plan ?? {});
+  // 计划表只能在“AI 建议 → 用户同意”后由后端更换，done 时回传更新后的计划
+  const handleAppliedPlan = (next: Plan) => {
+    setPlan(next);
+    qc.setQueryData(['plan'], next);
+    qc.setQueryData(LATEST_PLAN_KEY, qc.getQueryData(LATEST_PLAN_KEY)
+      ? { ...qc.getQueryData<{ plan: Plan }>(LATEST_PLAN_KEY)!, plan: next }
+      : { plan: next });
+    message.success('已按你的确认更换计划表中的动作');
+  };
+  const { messages, streaming, historyLoading, error, send } = useChatStream(
+    plan ?? {},
+    handleAppliedPlan,
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const isMobile = !Grid.useBreakpoint().sm;
   // 刷新后从服务器恢复最近计划，避免误报「请先生成计划」
@@ -48,39 +57,6 @@ export default function Chat() {
     );
   }
 
-  const applySubstitution = async (newName: string) => {
-    if (!pending) return;
-    const target = pending.original_exercise.trim().toLowerCase();
-    const next: Plan = structuredClone(plan);
-    let changed = false;
-    for (const day of next.weekly_plan ?? []) {
-      for (const ex of day.exercises ?? []) {
-        if (typeof ex.name === 'string' && ex.name.trim().toLowerCase() === target) {
-          ex.name = newName;
-          changed = true;
-        }
-      }
-    }
-    if (!changed) {
-      message.warning('当前计划中未找到该原动作');
-      return;
-    }
-
-    // 先更新本地与计划表格（['plan'] 缓存），再持久化使刷新/重登后仍在
-    setPlan(next);
-    qc.setQueryData(['plan'], next);
-    try {
-      const saved = await persistPlan(next);
-      qc.setQueryData(LATEST_PLAN_KEY, { plan: next, created_at: saved.created_at });
-      message.success(`已替换为 ${newName}，并同步到计划表格`);
-    } catch (err) {
-      // 本地替换已生效：仅提示保存失败，不回滚表格中的修改
-      const detail = err instanceof ApiError ? err.message : String(err);
-      message.warning(`已更新当前计划，但保存到服务器失败：${detail}`);
-    }
-    setChosen(null);
-  };
-
   const trySend = () => {
     const text = input.trim();
     if (!text || streaming) return;
@@ -101,8 +77,18 @@ export default function Chat() {
             background: palette.bgSubtle,
           }}
         >
-          {messages.length === 0 && (
-            <Alert type="info" showIcon message="开始对话" description="告诉我你想调整哪里，我会基于真实动作库给出候选。" />
+          {historyLoading && (
+            <div style={{ textAlign: 'center', padding: spacing.lg }}>
+              <Spin />
+            </div>
+          )}
+          {!historyLoading && messages.length === 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message="开始对话"
+              description="告诉我你想调整哪里，我会基于真实动作库给出更换建议；你确认同意后，我才会修改计划表。"
+            />
           )}
           {messages.map((m) => {
             const isUser = m.role === 'user';
@@ -130,22 +116,6 @@ export default function Chat() {
           })}
           <div ref={bottomRef} />
         </div>
-
-        {/* 替代动作区：选中候选即直接更新计划并持久化，无需再点按钮 */}
-        {pending?.alternatives?.length ? (
-          <div style={{ padding: `${spacing.md} ${spacing.lg}`, borderTop: `1px solid ${palette.border}` }}>
-            <Select
-              style={{ width: '100%', maxWidth: 420 }}
-              placeholder="选择替代动作后将直接更新计划表格"
-              value={chosen ?? undefined}
-              onChange={(v) => {
-                setChosen(v);
-                void applySubstitution(v);
-              }}
-              options={pending.alternatives.map((a) => ({ value: a.name, label: a.name }))}
-            />
-          </div>
-        ) : null}
 
         {error && (
           <div style={{ padding: `${spacing.md} ${spacing.lg} 0` }}>

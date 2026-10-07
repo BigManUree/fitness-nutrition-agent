@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { streamChat } from '../api/chat';
-import type { ChatDone, ChatMessage, ToolResult } from '../api/chat';
+import { getChatHistory, streamChat } from '../api/chat';
+import type { ChatDone, ChatMessage } from '../api/chat';
 import type { Plan } from '../types/plan';
 
 /** 会话历史缓存键：组件卸载重挂载（切换页面）后从此恢复；登出时统一 clear。 */
 export const CHAT_MESSAGES_KEY = ['chatMessages'] as const;
-/** 待确认的替代动作候选：与历史同样保留，切走再返回仍可应用。 */
-export const CHAT_PENDING_KEY = ['chatPending'] as const;
 
-export function useChatStream(plan: Plan) {
+export function useChatStream(
+  plan: Plan,
+  onAppliedPlan?: (plan: Plan) => void,
+) {
   const queryClient = useQueryClient();
   const planRef = useRef(plan);
   useEffect(() => {
@@ -21,10 +22,40 @@ export function useChatStream(plan: Plan) {
     () => queryClient.getQueryData<ChatMessage[]>(CHAT_MESSAGES_KEY) ?? [],
   );
   const [streaming, setStreaming] = useState(false);
-  const [pending, setPendingState] = useState<ToolResult | null>(
-    () => queryClient.getQueryData<ToolResult>(CHAT_PENDING_KEY) ?? null,
+  const [historyLoading, setHistoryLoading] = useState(
+    () => !queryClient.getQueryData(CHAT_MESSAGES_KEY),
   );
   const [error, setError] = useState<string | null>(null);
+  const appliedCbRef = useRef(onAppliedPlan);
+  useEffect(() => {
+    appliedCbRef.current = onAppliedPlan;
+  });
+
+  // 挂载时从服务端恢复该账号持久化的历史（缓存为空才拉取；登出时缓存已清）
+  useEffect(() => {
+    if (queryClient.getQueryData(CHAT_MESSAGES_KEY)) return;
+    let cancelled = false;
+    getChatHistory()
+      .then((data) => {
+        if (cancelled) return;
+        const restored: ChatMessage[] = data.messages.map((m, i) => ({
+          id: `srv-${i}`,
+          role: m.role,
+          content: m.content,
+        }));
+        setMessagesState(restored);
+        queryClient.setQueryData(CHAT_MESSAGES_KEY, restored);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [queryClient]);
 
   // 同时写 state 与缓存，保证卸载后下一次挂载能读到最新值
   const setMessages = useCallback(
@@ -38,21 +69,12 @@ export function useChatStream(plan: Plan) {
     [queryClient],
   );
 
-  const setPending = useCallback(
-    (next: ToolResult | null) => {
-      setPendingState(next);
-      queryClient.setQueryData(CHAT_PENDING_KEY, next);
-    },
-    [queryClient],
-  );
-
   const send = useCallback(
     async (text: string) => {
       const history = [...messages];
       setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'user', content: text }]);
       setStreaming(true);
       setError(null);
-      setPending(null);
 
       let acc = '';
       let failed = false;
@@ -75,8 +97,7 @@ export function useChatStream(plan: Plan) {
             });
           },
           onDone: (done: ChatDone) => {
-            const latest = [...done.tool_results].reverse().find((r) => r.alternatives?.length);
-            if (latest) setPending(latest);
+            if (done.applied_plan) appliedCbRef.current?.(done.applied_plan);
           },
           onError: markError,
         });
@@ -93,8 +114,8 @@ export function useChatStream(plan: Plan) {
         setStreaming(false);
       }
     },
-    [messages, setMessages, setPending],
+    [messages, setMessages],
   );
 
-  return { messages, streaming, pending, error, send };
+  return { messages, streaming, historyLoading, error, send };
 }

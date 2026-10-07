@@ -18,6 +18,23 @@ export interface ToolResult {
 
 export interface ChatDone {
   tool_results: ToolResult[];
+  applied_plan?: Plan | null;
+}
+
+export interface ChatHistoryResponse {
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  pending: ToolResult | null;
+}
+
+export async function getChatHistory(): Promise<ChatHistoryResponse> {
+  const res = await fetch('/api/chat/history', {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    if (res.status === 401) notifyUnauthorized();
+    throw new Error(`读取对话历史失败（${res.status}）`);
+  }
+  return res.json();
 }
 
 export interface ChatStreamHandlers {

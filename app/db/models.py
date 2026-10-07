@@ -53,6 +53,31 @@ CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
 """
 
 # ============================================================
+# 对话调整持久化（DDL 常量，由 sqlite_client 拼入 SCHEMA_SQL）
+# ============================================================
+
+# 对话调整历史：按账号持久化，退出/重新登录后仍可查看
+CHAT_HISTORY_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_id);
+"""
+
+# 待确认的换动作建议：每用户至多一条；用户同意并应用后删除
+CHAT_PENDING_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS chat_pending (
+    user_id TEXT PRIMARY KEY,
+    proposal_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# ============================================================
 # 观测与复盘表（DDL 常量，由 sqlite_client 拼入 SCHEMA_SQL）
 # ============================================================
 

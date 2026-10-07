@@ -29,6 +29,30 @@ SUBSTITUTE_TOOL_DEFINITION = {
     },
 }
 
+# 用户明确同意后，由模型调用本工具执行更换；参数只能引用此前建议中的候选
+ACCEPT_TOOL_DEFINITION = {
+    "type": "function",
+    "function": {
+        "name": "accept_substitution",
+        "description": "用户明确同意后，把计划中的原动作更换为此前建议的候选动作。"
+        "只能在用户明确确认后调用；replacement_name 必须是建议候选之一。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "original_exercise": {
+                    "type": "string",
+                    "description": "被替换的原动作名称",
+                },
+                "replacement_name": {
+                    "type": "string",
+                    "description": "用户同意更换的候选动作名称（必须来自建议候选）",
+                },
+            },
+            "required": ["original_exercise", "replacement_name"],
+        },
+    },
+}
+
 # 工具执行器：在同步上下文里跑 async 工具
 ToolRunner = Callable[..., dict[str, Any]]
 
@@ -50,18 +74,34 @@ CHAT_SYSTEM_TEMPLATE = """你是健身营养 Agent 的对话助手，帮助用�
 1. 普通问答只能围绕下方计划内容；不要编造计划之外的新动作或新食物。
 2. 当用户要求"替换/换掉某个动作"时，必须调用 substitute_exercise 工具，
    并根据工具返回的真实候选回答；工具返回为空时如实转述，不要自己编候选。
-3. 不做医疗诊断，不推荐极端节食或危险动作。
-4. 如果用户描述胸痛、头晕、严重关节疼痛、心悸等症状，回复：
+3. 工具返回候选后，你只能"提出建议"：说明建议把哪个动作换成哪个候选（可给出
+   推荐项与理由），并询问用户是否同意。严禁声称计划已经修改，严禁未经用户明确
+   同意就调用 accept_substitution。
+4. 只有当用户"明确同意/确认"（例如"可以""同意""就这样换"）时，才调用
+   accept_substitution 执行更换，replacement_name 必须是此前建议的候选之一；
+   用户未同意、含糊其辞或提出新要求时，不要调用该工具。
+5. 不做医疗诊断，不推荐极端节食或危险动作。
+6. 如果用户描述胸痛、头晕、严重关节疼痛、心悸等症状，回复：
    "我没办法判断你的身体情况，不能给出是否可以继续锻炼的建议。该症状属于需要重视的症状，建议你暂停训练，尽快咨询医生，由专业医师评估后再决定是否运动。"
-5. 用简洁中文回答；列出候选动作时保留动作原名（英文）。
+7. 用简洁中文回答；列出候选动作时保留动作原名（英文）。
+
+待确认的换动作建议（如存在，用户同意后方可执行）：
+{pending_json}
 
 当前计划：
 {plan_json}"""
 
 
-def build_chat_system_prompt(plan: dict[str, Any]) -> str:
-    """把当前计划 JSON 内嵌进对话系统提示（plan 随客户端请求带入）。"""
-    return CHAT_SYSTEM_TEMPLATE.format(plan_json=json.dumps(plan, ensure_ascii=False))
+def build_chat_system_prompt(
+    plan: dict[str, Any], pending: dict[str, Any] | None = None
+) -> str:
+    """把当前计划 JSON 与待确认建议内嵌进对话系统提示。"""
+    return CHAT_SYSTEM_TEMPLATE.format(
+        plan_json=json.dumps(plan, ensure_ascii=False),
+        pending_json=(
+            json.dumps(pending, ensure_ascii=False) if pending else "（无）"
+        ),
+    )
 
 
 def default_tool_runner(**kwargs: Any) -> dict[str, Any]:
@@ -74,6 +114,7 @@ def resolve_with_tools(
     profile: dict[str, Any],
     *,
     tool_runner: ToolRunner | None = None,
+    accept_runner: ToolRunner | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """执行一轮"可能含工具调用"的对话。
 
@@ -81,13 +122,16 @@ def resolve_with_tools(
         llm: LangChain 聊天模型（无需提前 bind_tools，本函数会绑定）。
         messages: 已组装好的消息（System + 历史）。
         profile: 用户画像，用于强制约束器械范围。
-        tool_runner: 工具执行方式（测试注入），默认 asyncio.run。
+        tool_runner: substitute_exercise 执行方式（测试注入），默认 asyncio.run。
+        accept_runner: accept_substitution 执行方式（测试注入）。
 
     Returns:
-        (最终回答文本, 本次实际执行的 substitute_exercise 返回列表)
+        (最终回答文本, 本次实际执行的工具返回列表)
     """
     tool_runner = tool_runner or default_tool_runner
-    llm_with_tools = llm.bind_tools([SUBSTITUTE_TOOL_DEFINITION])
+    llm_with_tools = llm.bind_tools(
+        [SUBSTITUTE_TOOL_DEFINITION, ACCEPT_TOOL_DEFINITION]
+    )
 
     tool_results: list[dict[str, Any]] = []
     response: AIMessage = llm_with_tools.invoke(messages)
@@ -96,7 +140,9 @@ def resolve_with_tools(
     while response.tool_calls:
         messages.append(response)
         for call in response.tool_calls:
-            tool_output = _run_substitute(call, profile, tool_runner)
+            tool_output = _dispatch_tool(
+                call, profile, tool_runner, accept_runner
+            )
             tool_results.append(tool_output)
             messages.append(
                 ToolMessage(
@@ -115,23 +161,26 @@ def stream_with_tools(
     profile: dict[str, Any],
     *,
     tool_runner: ToolRunner | None = None,
+    accept_runner: ToolRunner | None = None,
     tool_results: list[dict[str, Any]] | None = None,
 ) -> Iterator[str]:
     """流式执行一轮"可能含工具调用"的对话（生成器产出文本增量）。
 
     与 resolve_with_tools 的区别：最终回答逐 token yield（供 Streamlit 边生成
-    边显示）。子代调用循环在生成器内部执行，tool_results（如有）在生成器被
-    消费期间就地填充，调用方可在 write_stream 结束后读取。
+    边显示）。工具调用循环在生成器内部执行，tool_results（如有）在生成器被
+    消费期间就地填充，调用方可在流结束后读取。
 
     Args:
-        tool_results: 可选的外部列表，用于把本轮的 substitute_exercise 返回
-            回传给调用方（供"应用到计划"）。
+        tool_results: 可选的外部列表，用于把本轮的工具返回回传给调用方。
+        accept_runner: accept_substitution 执行方式（测试注入）。
 
     Yields:
         模型回答的文本增量（工具调用轮次通常无正文，故不见增量）。
     """
     tool_runner = tool_runner or default_tool_runner
-    llm_with_tools = llm.bind_tools([SUBSTITUTE_TOOL_DEFINITION])
+    llm_with_tools = llm.bind_tools(
+        [SUBSTITUTE_TOOL_DEFINITION, ACCEPT_TOOL_DEFINITION]
+    )
     results = tool_results if tool_results is not None else []
 
     while True:
@@ -149,7 +198,9 @@ def stream_with_tools(
         # 本轮为工具调用：回填工具结果，进入下一轮
         messages.append(full)
         for call in full.tool_calls:
-            tool_output = _run_substitute(call, profile, tool_runner)
+            tool_output = _dispatch_tool(
+                call, profile, tool_runner, accept_runner
+            )
             results.append(tool_output)
             messages.append(
                 ToolMessage(
@@ -167,6 +218,33 @@ def _chunk_text(chunk: Any) -> str:
     if isinstance(content, list):
         return "".join(b.get("text", "") for b in content if isinstance(b, dict))
     return ""
+
+
+def _dispatch_tool(
+    call: dict[str, Any],
+    profile: dict[str, Any],
+    tool_runner: ToolRunner,
+    accept_runner: ToolRunner | None,
+) -> dict[str, Any]:
+    """按工具名分派：substitute_exercise 查候选，accept_substitution 执行更换。"""
+    name = call.get("name", "")
+    if name == "accept_substitution":
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        try:
+            if accept_runner is None:
+                raise RuntimeError("未配置更换执行器")
+            return accept_runner(
+                original_exercise=args.get("original_exercise", ""),
+                replacement_name=args.get("replacement_name", ""),
+            )
+        except Exception as exc:
+            return {
+                "accepted": False,
+                "original_exercise": args.get("original_exercise", ""),
+                "replacement": args.get("replacement_name", ""),
+                "note": f"更换动作失败：{exc}",
+            }
+    return _run_substitute(call, profile, tool_runner)
 
 
 def _run_substitute(

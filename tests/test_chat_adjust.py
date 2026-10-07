@@ -168,6 +168,73 @@ def test_resolve_multiple_tool_calls_in_sequence():
     assert [c["original_exercise"] for c in calls] == ["A", "B"]
 
 
+def test_resolve_runs_accept_runner_on_confirm():
+    """用户明确同意 → 模型调用 accept_substitution → accept_runner 执行更换。"""
+    accepted = {
+        "accepted": True,
+        "original_exercise": "Barbell Bench Press",
+        "replacement": "Dumbbell Bench Press",
+        "plan": {"weekly_plan": []},
+    }
+
+    def fake_accept_runner(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["original_exercise"] == "Barbell Bench Press"
+        assert kwargs["replacement_name"] == "Dumbbell Bench Press"
+        return accepted
+
+    tool_call = {
+        "name": "accept_substitution",
+        "args": {
+            "original_exercise": "Barbell Bench Press",
+            "replacement_name": "Dumbbell Bench Press",
+        },
+        "id": "call-ok",
+    }
+    llm = _FakeLLM(
+        [
+            AIMessage(content="", tool_calls=[tool_call]),
+            AIMessage(content="已经帮你换好了。"),
+        ]
+    )
+
+    answer, results = resolve_with_tools(
+        llm,
+        [],
+        PROFILE,
+        tool_runner=lambda **k: FAKE_ALTERNATIVES,
+        accept_runner=fake_accept_runner,
+    )
+
+    assert answer == "已经帮你换好了。"
+    assert results == [accepted]
+
+
+def test_resolve_accept_failure_is_captured():
+    """accept_runner 抛错（如候选不在建议中）时不应用更换，错误回填给模型。"""
+    def boom(**kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("候选不在建议中")
+
+    tool_call = {
+        "name": "accept_substitution",
+        "args": {"original_exercise": "X", "replacement_name": "Y"},
+        "id": "call-bad",
+    }
+    llm = _FakeLLM(
+        [
+            AIMessage(content="", tool_calls=[tool_call]),
+            AIMessage(content="这个动作不在建议里，不能换。"),
+        ]
+    )
+
+    answer, results = resolve_with_tools(
+        llm, [], PROFILE, accept_runner=boom
+    )
+
+    assert "不能换" in answer
+    assert results[0]["accepted"] is False
+    assert "候选不在建议中" in results[0]["note"]
+
+
 # ============================================================
 # 流式输出（#6）：stream_with_tools
 # ============================================================

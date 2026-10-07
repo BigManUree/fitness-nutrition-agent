@@ -62,7 +62,7 @@ def test_chat_without_profile_400(client):
 
 
 def test_chat_guard_reply_streams(client, monkeypatch):
-    def should_not_run(*a, **k):
+    def should_not_run(*a, **k):  # noqa: ARG001
         raise AssertionError("命中安全守卫时不应调 stream_with_tools")
 
     monkeypatch.setattr(api_main, "stream_with_tools", should_not_run)
@@ -78,7 +78,7 @@ def test_chat_guard_reply_streams(client, monkeypatch):
 
 
 def test_chat_streams_tokens_and_tool_results(client, monkeypatch):
-    def fake_stream(llm, messages, profile, tool_results=None):
+    def fake_stream(llm, messages, profile, tool_results=None, **kwargs):  # noqa: ARG001
         yield "候选："
         yield "Dumbbell Press"
         if tool_results is not None:
@@ -103,8 +103,47 @@ def test_chat_streams_tokens_and_tool_results(client, monkeypatch):
     assert '"alternatives"' in text
 
 
+def test_chat_history_is_persisted_per_user(client, monkeypatch):
+    """对话落库：重新请求（模拟重登）后 GET 历史仍能读出完整往返。"""
+    def fake_stream(llm, messages, profile, tool_results=None, **kwargs):  # noqa: ARG001
+        yield "建议换成 Dumbbell Press，确认后我再改。"
+        if tool_results is not None:
+            tool_results.append(
+                {
+                    "original_exercise": "卧推",
+                    "alternatives": [{"name": "Dumbbell Press"}],
+                    "total": 1,
+                    "source": "mcp",
+                }
+            )
+
+    monkeypatch.setattr(api_main, "stream_with_tools", fake_stream)
+    monkeypatch.setattr(api_main, "get_llm", lambda **kw: object())
+    resp = client.post(
+        "/api/plans/chat",
+        json={"plan": PLAN, "messages": [], "message": "把卧推换掉"},
+    )
+    assert resp.status_code == 200
+
+    history = client.get("/api/chat/history")
+    assert history.status_code == 200
+    msgs = history.json()["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["content"] == "把卧推换掉"
+    assert "Dumbbell Press" in msgs[1]["content"]
+    # 待确认建议同时持久化
+    assert history.json()["pending"]["original_exercise"] == "卧推"
+
+
+def test_chat_history_isolated_by_user(client):
+    """其他账号看不到该用户的对话历史。"""
+    other = TestClient(api_main.app)
+    other.post("/api/auth/register", json={"username": "frank", "password": "secret123"})
+    assert other.get("/api/chat/history").json()["messages"] == []
+
+
 def test_chat_error_emits_error_event(client, monkeypatch):
-    def boom(llm, messages, profile, tool_results=None):
+    def boom(llm, messages, profile, tool_results=None, **kwargs):  # noqa: ARG001
         yield "开始"
         raise RuntimeError("llm 挂了")
 

@@ -36,8 +36,13 @@ from app.agent.llm import get_llm
 from app.agent.safety import pre_check_message
 from app.db.models import Profile
 from app.db.sqlite_client import (
+    append_chat_message,
+    clear_chat_pending,
+    load_chat_history,
+    load_chat_pending,
     load_latest_plan,
     load_profile,
+    save_chat_pending,
     save_plan,
     save_profile,
 )
@@ -326,6 +331,15 @@ def persist_latest_plan(
     return {"plan": plan, "created_at": created_at}
 
 
+@app.get("/api/chat/history")
+def chat_history(user: str = Depends(current_user)) -> dict[str, Any]:
+    """读取当前账号持久化的对话调整历史与待确认建议（重登后恢复用）。"""
+    return {
+        "messages": load_chat_history(user),
+        "pending": load_chat_pending(user),
+    }
+
+
 @app.post("/api/plans/chat")
 def chat_stream(
     request: ChatRequest, user: str = Depends(current_user)
@@ -335,31 +349,118 @@ def chat_stream(
         raise HTTPException(status_code=400, detail="尚未填写画像，无法进行对话调整")
     profile_data = profile.model_dump()
 
+    def make_accept_runner() -> Any:
+        """用户同意后执行更换：校验候选出自待确认建议，再改表并持久化。"""
+
+        def run(*, original_exercise: str, replacement_name: str) -> dict[str, Any]:
+            pending = load_chat_pending(user)
+            if pending is None:
+                raise ValueError("当前没有待确认的更换建议")
+            wanted = original_exercise.strip().lower()
+            if wanted != str(pending.get("original_exercise", "")).strip().lower():
+                raise ValueError("原动作与待确认建议不一致")
+            names = [
+                str(a.get("name", "")).strip().lower()
+                for a in pending.get("alternatives", [])
+                if isinstance(a, dict)
+            ]
+            if replacement_name.strip().lower() not in names:
+                raise ValueError("只能更换为此前建议的候选动作")
+
+            next_plan: dict[str, Any] = structured_clone(request.plan)
+            changed = False
+            for day in next_plan.get("weekly_plan", []):
+                for ex in day.get("exercises", []):
+                    if (
+                        isinstance(ex.get("name"), str)
+                        and ex["name"].strip().lower() == wanted
+                    ):
+                        ex["name"] = replacement_name
+                        changed = True
+            if not changed:
+                raise ValueError("当前计划中未找到该原动作")
+
+            save_plan(user, next_plan, "weekly_plan")
+            clear_chat_pending(user)
+            return {
+                "accepted": True,
+                "original_exercise": original_exercise,
+                "replacement": replacement_name,
+                "plan": next_plan,
+            }
+
+        return run
+
     def generate() -> Any:
+        # 用户消息先落库；历史以服务端存储为准，不采信客户端上送的 messages
+        append_chat_message(user, "user", request.message)
+
         guard = pre_check_message(request.message)
         if guard is not None:
+            append_chat_message(user, "assistant", guard)
             yield _sse_event("token", guard)
-            yield _sse_event("done", {"tool_results": []})
+            yield _sse_event(
+                "done", {"tool_results": [], "applied_plan": None}
+            )
             return
         try:
+            pending = load_chat_pending(user)
             llm = get_llm(json_mode=False, temperature=0.4)
             messages: list[Any] = [
-                SystemMessage(content=build_chat_system_prompt(request.plan))
+                SystemMessage(
+                    content=build_chat_system_prompt(request.plan, pending)
+                )
             ]
-            for m in request.messages:
-                cls = HumanMessage if m.get("role") == "user" else AIMessage
-                messages.append(cls(content=m.get("content", "")))
-            messages.append(HumanMessage(content=request.message))
+            for m in load_chat_history(user):
+                cls = HumanMessage if m["role"] == "user" else AIMessage
+                messages.append(cls(content=m["content"]))
             tool_results: list[dict[str, Any]] = []
+            acc = ""
             for text in stream_with_tools(
-                llm, messages, profile_data, tool_results=tool_results
+                llm,
+                messages,
+                profile_data,
+                tool_results=tool_results,
+                accept_runner=make_accept_runner(),
             ):
+                acc += text
                 yield _sse_event("token", text)
-            yield _sse_event("done", {"tool_results": tool_results})
+
+            if acc.strip():
+                append_chat_message(user, "assistant", acc)
+
+            # 新建议覆盖待确认；已接受的更换把更新后的计划回传前端
+            proposal = next(
+                (
+                    r
+                    for r in reversed(tool_results)
+                    if r.get("alternatives")
+                    and not r.get("accepted")
+                ),
+                None,
+            )
+            if proposal is not None:
+                save_chat_pending(user, proposal)
+
+            accepted = next(
+                (r for r in tool_results if r.get("accepted")), None
+            )
+            yield _sse_event(
+                "done",
+                {
+                    "tool_results": tool_results,
+                    "applied_plan": accepted["plan"] if accepted else None,
+                },
+            )
         except Exception as exc:
             yield _sse_event("error", {"message": f"调用模型失败：{exc}"})
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+def structured_clone(value: dict[str, Any]) -> dict[str, Any]:
+    """深拷贝 dict（JSON 可序列化的计划数据）。"""
+    return json.loads(json.dumps(value, ensure_ascii=False))
 
 
 # ============================================================
